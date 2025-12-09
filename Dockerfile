@@ -36,12 +36,6 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder /app/main .
 
-# Copy .env file if it exists (optional)
-COPY .env* ./
-
-# Copy cookies file if it exists (optional)
-COPY cookies.txt* ./ 2>/dev/null || true
-
 # Expose port
 EXPOSE 5055
 
