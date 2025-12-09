@@ -24,10 +24,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 # Runtime stage
 FROM alpine:latest
 
-# Install runtime dependencies (only ffmpeg for audio conversion)
+# Install runtime dependencies
 RUN apk add --no-cache \
     ca-certificates \
+    python3 \
+    py3-pip \
     ffmpeg
+
+# Install yt-dlp with latest version
+RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp
 
 WORKDIR /app
 

@@ -12,18 +12,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/kkdai/youtube/v2"
 	"github.com/rs/cors"
 )
 
 // Config holds application configuration
 type Config struct {
-	Port         string
-	OpenAIAPIKey string
+	Port           string
+	OpenAIAPIKey   string
+	CookiesFile    string
 }
 
 // TranscribeRequest represents the incoming transcription request
@@ -53,10 +52,10 @@ type VideoMetadata struct {
 
 // TranscriptData represents the transcript data with segments
 type TranscriptData struct {
-	Text     string              `json:"text"`     // Full transcript text
+	Text     string             `json:"text"`     // Full transcript text
 	Segments []TranscriptSegment `json:"segments"` // Timestamped segments
-	Language string              `json:"language"` // Detected language
-	Duration float64             `json:"duration"` // Duration in seconds
+	Language string             `json:"language"` // Detected language
+	Duration float64            `json:"duration"` // Duration in seconds
 }
 
 // TranscriptSegment represents a timestamped segment of the transcript
@@ -92,6 +91,7 @@ func main() {
 	config = Config{
 		Port:         getEnv("PORT", "5055"),
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
+		CookiesFile:  getEnv("YTDLP_COOKIES_FILE", ""),
 	}
 
 	if config.OpenAIAPIKey == "" {
@@ -166,22 +166,19 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Get video metadata and download audio
-	metadata, audioFile, err := downloadYouTubeAudioGo(req.URL, tempDir)
+	// Get video metadata
+	metadata, err := getVideoMetadata(req.URL)
+	if err != nil {
+		log.Printf("Error fetching video metadata: %v", err)
+		sendError(w, fmt.Sprintf("Failed to fetch video metadata: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Download audio from YouTube
+	audioFile, err := downloadYouTubeAudio(req.URL, tempDir)
 	if err != nil {
 		log.Printf("Error downloading YouTube audio: %v", err)
-
-		// Provide user-friendly error messages for common issues
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "age restriction") {
-			sendError(w, "This video is age-restricted and cannot be processed. Please try a different video.", http.StatusBadRequest)
-		} else if strings.Contains(errMsg, "embedding") && strings.Contains(errMsg, "disabled") {
-			sendError(w, "This video has embedding disabled and cannot be processed. Please try a different video.", http.StatusBadRequest)
-		} else if strings.Contains(errMsg, "private") || strings.Contains(errMsg, "unavailable") {
-			sendError(w, "This video is private or unavailable. Please try a different video.", http.StatusBadRequest)
-		} else {
-			sendError(w, fmt.Sprintf("Failed to download YouTube audio: %v", err), http.StatusInternalServerError)
-		}
+		sendError(w, fmt.Sprintf("Failed to download YouTube audio: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -205,79 +202,92 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// downloadYouTubeAudioGo downloads audio from YouTube using pure Go library
-func downloadYouTubeAudioGo(videoURL, tempDir string) (VideoMetadata, string, error) {
-	client := youtube.Client{}
+// getVideoMetadata fetches video metadata using yt-dlp
+func getVideoMetadata(url string) (VideoMetadata, error) {
+	// Use yt-dlp to get video info as JSON
+	args := []string{
+		"--dump-json",
+		"--no-playlist",
+		"--skip-download",
+		"--extractor-args", "youtube:player_client=android,web",
+		"--no-check-certificates",
+		url,
+	}
 
-	// Get video info
-	video, err := client.GetVideo(videoURL)
+	cmd := exec.Command("yt-dlp", args...)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return VideoMetadata{}, "", fmt.Errorf("failed to get video info: %v", err)
+		return VideoMetadata{}, fmt.Errorf("yt-dlp failed to fetch metadata: %v, output: %s", err, string(output))
 	}
 
-	// Build metadata
+	// Parse the JSON output
+	var videoInfo struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Uploader    string `json:"uploader"`
+		UploaderURL string `json:"uploader_url"`
+		Duration    int    `json:"duration"`
+		UploadDate  string `json:"upload_date"`
+		ViewCount   int64  `json:"view_count"`
+		Thumbnail   string `json:"thumbnail"`
+	}
+
+	if err := json.Unmarshal(output, &videoInfo); err != nil {
+		return VideoMetadata{}, fmt.Errorf("failed to parse video metadata: %v", err)
+	}
+
 	metadata := VideoMetadata{
-		Title:       video.Title,
-		Description: video.Description,
-		Channel:     video.Author,
-		ChannelURL:  fmt.Sprintf("https://www.youtube.com/channel/%s", video.ChannelID),
-		Duration:    int(video.Duration.Seconds()),
-		UploadDate:  video.PublishDate.Format("20060102"),
-		ViewCount:   int64(video.Views),
-		Thumbnail:   getBestThumbnail(video.Thumbnails),
+		Title:       videoInfo.Title,
+		Description: videoInfo.Description,
+		Channel:     videoInfo.Uploader,
+		ChannelURL:  videoInfo.UploaderURL,
+		Duration:    videoInfo.Duration,
+		UploadDate:  videoInfo.UploadDate,
+		ViewCount:   videoInfo.ViewCount,
+		Thumbnail:   videoInfo.Thumbnail,
 	}
 
-	// Get audio format (best audio quality)
-	formats := video.Formats.WithAudioChannels()
-	if len(formats) == 0 {
-		return metadata, "", fmt.Errorf("no audio formats available")
+	return metadata, nil
+}
+
+// downloadYouTubeAudio downloads audio from a YouTube URL using yt-dlp
+func downloadYouTubeAudio(url, tempDir string) (string, error) {
+	outputPath := filepath.Join(tempDir, "audio.mp3")
+
+	// Build yt-dlp command arguments with OAuth support
+	args := []string{
+		"-x",                    // Extract audio
+		"--audio-format", "mp3", // Convert to MP3
+		"-o", outputPath,        // Output path
+		"--no-playlist",         // Don't download playlists
+		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"--extractor-args", "youtube:player_client=android,web",  // Use mobile client to avoid restrictions
+		"--no-check-certificates", // Skip SSL verification issues
 	}
 
-	// Find best audio format
-	var bestFormat *youtube.Format
-	for i := range formats {
-		format := &formats[i]
-		if bestFormat == nil || format.Bitrate > bestFormat.Bitrate {
-			bestFormat = format
+	// Add cookies file if configured
+	if config.CookiesFile != "" {
+		if _, err := os.Stat(config.CookiesFile); err == nil {
+			args = append(args, "--cookies", config.CookiesFile)
 		}
 	}
 
-	// Download audio stream
-	stream, _, err := client.GetStream(video, bestFormat)
+	// Add URL as last argument
+	args = append(args, url)
+
+	// Execute yt-dlp command
+	cmd := exec.Command("yt-dlp", args...)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return metadata, "", fmt.Errorf("failed to get audio stream: %v", err)
-	}
-	defer stream.Close()
-
-	// Save to temporary file
-	tempAudioFile := filepath.Join(tempDir, "audio.m4a")
-	file, err := os.Create(tempAudioFile)
-	if err != nil {
-		return metadata, "", fmt.Errorf("failed to create audio file: %v", err)
-	}
-	defer file.Close()
-
-	if _, err := io.Copy(file, stream); err != nil {
-		return metadata, "", fmt.Errorf("failed to save audio: %v", err)
+		return "", fmt.Errorf("yt-dlp failed: %v, output: %s", err, string(output))
 	}
 
-	// Convert to MP3 using ffmpeg
-	mp3File := filepath.Join(tempDir, "audio.mp3")
-	cmd := exec.Command("ffmpeg", "-i", tempAudioFile, "-vn", "-ar", "44100", "-ac", "2", "-b:a", "192k", mp3File)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return metadata, "", fmt.Errorf("ffmpeg conversion failed: %v, output: %s", err, string(output))
+	// Verify the file was created
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("audio file was not created")
 	}
 
-	return metadata, mp3File, nil
-}
-
-// getBestThumbnail returns the highest quality thumbnail URL
-func getBestThumbnail(thumbnails []youtube.Thumbnail) string {
-	if len(thumbnails) == 0 {
-		return ""
-	}
-	// Return the last one (usually highest quality)
-	return thumbnails[len(thumbnails)-1].URL
+	return outputPath, nil
 }
 
 // transcribeAudioWithTimestamps transcribes an audio file using OpenAI Whisper API with timestamp segments
@@ -353,8 +363,8 @@ func transcribeAudioWithTimestamps(audioFilePath string) (TranscriptData, error)
 
 	// Parse verbose_json response
 	var result struct {
-		Text     string  `json:"text"`
-		Language string  `json:"language"`
+		Text     string `json:"text"`
+		Language string `json:"language"`
 		Duration float64 `json:"duration"`
 		Segments []struct {
 			ID    int     `json:"id"`
