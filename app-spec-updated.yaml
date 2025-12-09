@@ -1,0 +1,143 @@
+alerts:
+- rule: DEPLOYMENT_FAILED
+- rule: DOMAIN_FAILED
+domains:
+- domain: avisualidentity.com
+  type: PRIMARY
+  zone: avisualidentity.com
+- domain: www.avisualidentity.com
+  type: ALIAS
+  zone: avisualidentity.com
+envs:
+- key: VITE_SUPABASE_PROJECT_ID
+  scope: RUN_AND_BUILD_TIME
+  value: jtkocsncvgpyivzzoszl
+- key: VITE_SUPABASE_PUBLISHABLE_KEY
+  scope: RUN_AND_BUILD_TIME
+  value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0a29jc25jdmdweWl2enpvc3psIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ5NDk2NzEsImV4cCI6MjA4MDUyNTY3MX0.K8kSmzYOUUdeB9xWrST1ogeEQsXyMmGAJV-F4ptkl3U
+- key: VITE_SUPABASE_URL
+  scope: RUN_AND_BUILD_TIME
+  value: https://jtkocsncvgpyivzzoszl.supabase.co
+- key: VITE_GA_MEASUREMENT_ID
+  scope: RUN_AND_BUILD_TIME
+  value: G-P5WB5V31G2
+features:
+- buildpack-stack=ubuntu-22
+ingress:
+  rules:
+  - component:
+      name: avi-backend
+    match:
+      path:
+        prefix: /server
+  - component:
+      name: phoenix-digital-growth
+    match:
+      path:
+        prefix: /admin
+  - component:
+      name: n-8-nio-n-8-n
+    match:
+      path:
+        prefix: /n8n
+  - component:
+      name: phoenix-digital-growth
+    match:
+      path:
+        prefix: /
+name: avisualidentity
+region: sfo
+services:
+# UPDATED: avi-backend now uses Dockerfile for Go deployment
+- dockerfile_path: Dockerfile
+  envs:
+  - key: PORT
+    scope: RUN_TIME
+    value: "5055"
+  - key: OPENAI_API_KEY
+    scope: RUN_TIME
+    type: SECRET
+    value: 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
+  - key: YTDLP_COOKIES_FILE
+    scope: RUN_TIME
+    value: ./cookies.txt
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: davodey/avi-backend
+  health_check:
+    http_path: /api/health
+    initial_delay_seconds: 30
+    period_seconds: 10
+    timeout_seconds: 5
+    success_threshold: 1
+    failure_threshold: 3
+  http_port: 5055
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-0.5gb
+  name: avi-backend
+  source_dir: /
+# n8n service - unchanged
+- envs:
+  - key: N8N_PATH
+    scope: RUN_AND_BUILD_TIME
+    value: /n8n/
+  - key: WEBHOOK_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://avisualidentity.com/n8n/
+  - key: N8N_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: avisualidentity.com
+  - key: N8N_EDITOR_BASE_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://avisualidentity.com/n8n/
+  - key: DB_TYPE
+    scope: RUN_AND_BUILD_TIME
+    value: postgresdb
+  - key: DB_POSTGRESDB_DATABASE
+    scope: RUN_AND_BUILD_TIME
+    value: postgres
+  - key: DB_POSTGRESDB_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: aws-0-us-west-2.pooler.supabase.com
+  - key: DB_POSTGRESDB_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "5432"
+  - key: DB_POSTGRESDB_USER
+    scope: RUN_AND_BUILD_TIME
+    value: postgres.lojfchtbtaibmywijuwb
+  - key: DB_POSTGRESDB_PASSWORD
+    scope: RUN_AND_BUILD_TIME
+    value: rDU@jP_69AEurAF
+  - key: DB_POSTGRESDB_SCHEMA
+    scope: RUN_AND_BUILD_TIME
+    value: public
+  - key: N8N_DIAGNOSTICS_ENABLED
+    scope: RUN_AND_BUILD_TIME
+    value: "false"
+  - key: EXECUTIONS_DATA_PRUNE
+    scope: RUN_AND_BUILD_TIME
+    value: "true"
+  - key: EXECUTIONS_DATA_MAX_AGE
+    scope: RUN_AND_BUILD_TIME
+    value: "168"
+  http_port: 5678
+  image:
+    registry: n8nio
+    registry_type: DOCKER_HUB
+    repository: n8n
+    tag: latest
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-0.5gb
+  name: n-8-nio-n-8-n
+# Static site - unchanged
+static_sites:
+- build_command: bun run build
+  catchall_document: index.html
+  environment_slug: bun
+  github:
+    branch: release-1.0.0
+    deploy_on_push: true
+    repo: davodey/phoenix-digital-growth
+  name: phoenix-digital-growth
+  source_dir: /
