@@ -32,14 +32,38 @@ type TranscribeRequest struct {
 
 // TranscribeResponse represents the transcription response
 type TranscribeResponse struct {
-	OK         bool        `json:"ok"`
-	URL        string      `json:"url"`
-	Transcript Transcript  `json:"transcript"`
+	OK         bool            `json:"ok"`
+	URL        string          `json:"url"`
+	Video      VideoMetadata   `json:"video"`
+	Transcript TranscriptData  `json:"transcript"`
 }
 
-// Transcript represents the transcript data
-type Transcript struct {
-	Text string `json:"text"`
+// VideoMetadata represents metadata about the video
+type VideoMetadata struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Channel     string `json:"channel"`
+	ChannelURL  string `json:"channel_url"`
+	Duration    int    `json:"duration"` // in seconds
+	UploadDate  string `json:"upload_date"`
+	ViewCount   int64  `json:"view_count"`
+	Thumbnail   string `json:"thumbnail"`
+}
+
+// TranscriptData represents the transcript data with segments
+type TranscriptData struct {
+	Text     string             `json:"text"`     // Full transcript text
+	Segments []TranscriptSegment `json:"segments"` // Timestamped segments
+	Language string             `json:"language"` // Detected language
+	Duration float64            `json:"duration"` // Duration in seconds
+}
+
+// TranscriptSegment represents a timestamped segment of the transcript
+type TranscriptSegment struct {
+	ID    int     `json:"id"`
+	Start float64 `json:"start"` // Start time in seconds
+	End   float64 `json:"end"`   // End time in seconds
+	Text  string  `json:"text"`
 }
 
 // HealthResponse represents the health check response
@@ -142,6 +166,14 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	// Get video metadata
+	metadata, err := getVideoMetadata(req.URL)
+	if err != nil {
+		log.Printf("Error fetching video metadata: %v", err)
+		sendError(w, fmt.Sprintf("Failed to fetch video metadata: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	// Download audio from YouTube
 	audioFile, err := downloadYouTubeAudio(req.URL, tempDir)
 	if err != nil {
@@ -150,8 +182,8 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Transcribe audio using OpenAI Whisper
-	transcript, err := transcribeAudio(audioFile)
+	// Transcribe audio using OpenAI Whisper with timestamps
+	transcript, err := transcribeAudioWithTimestamps(audioFile)
 	if err != nil {
 		log.Printf("Error transcribing audio: %v", err)
 		sendError(w, fmt.Sprintf("Failed to transcribe audio: %v", err), http.StatusInternalServerError)
@@ -160,15 +192,60 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Send response
 	response := TranscribeResponse{
-		OK:  true,
-		URL: req.URL,
-		Transcript: Transcript{
-			Text: transcript,
-		},
+		OK:         true,
+		URL:        req.URL,
+		Video:      metadata,
+		Transcript: transcript,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// getVideoMetadata fetches video metadata using yt-dlp
+func getVideoMetadata(url string) (VideoMetadata, error) {
+	// Use yt-dlp to get video info as JSON
+	args := []string{
+		"--dump-json",
+		"--no-playlist",
+		"--skip-download",
+		url,
+	}
+
+	cmd := exec.Command("yt-dlp", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return VideoMetadata{}, fmt.Errorf("yt-dlp failed to fetch metadata: %v, output: %s", err, string(output))
+	}
+
+	// Parse the JSON output
+	var videoInfo struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Uploader    string `json:"uploader"`
+		UploaderURL string `json:"uploader_url"`
+		Duration    int    `json:"duration"`
+		UploadDate  string `json:"upload_date"`
+		ViewCount   int64  `json:"view_count"`
+		Thumbnail   string `json:"thumbnail"`
+	}
+
+	if err := json.Unmarshal(output, &videoInfo); err != nil {
+		return VideoMetadata{}, fmt.Errorf("failed to parse video metadata: %v", err)
+	}
+
+	metadata := VideoMetadata{
+		Title:       videoInfo.Title,
+		Description: videoInfo.Description,
+		Channel:     videoInfo.Uploader,
+		ChannelURL:  videoInfo.UploaderURL,
+		Duration:    videoInfo.Duration,
+		UploadDate:  videoInfo.UploadDate,
+		ViewCount:   videoInfo.ViewCount,
+		Thumbnail:   videoInfo.Thumbnail,
+	}
+
+	return metadata, nil
 }
 
 // downloadYouTubeAudio downloads audio from a YouTube URL using yt-dlp
@@ -209,12 +286,12 @@ func downloadYouTubeAudio(url, tempDir string) (string, error) {
 	return outputPath, nil
 }
 
-// transcribeAudio transcribes an audio file using OpenAI Whisper API
-func transcribeAudio(audioFilePath string) (string, error) {
+// transcribeAudioWithTimestamps transcribes an audio file using OpenAI Whisper API with timestamp segments
+func transcribeAudioWithTimestamps(audioFilePath string) (TranscriptData, error) {
 	// Open audio file
 	file, err := os.Open(audioFilePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to open audio file: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to open audio file: %v", err)
 	}
 	defer file.Close()
 
@@ -225,26 +302,36 @@ func transcribeAudio(audioFilePath string) (string, error) {
 	// Add file field
 	part, err := writer.CreateFormFile("file", filepath.Base(audioFilePath))
 	if err != nil {
-		return "", fmt.Errorf("failed to create form file: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to create form file: %v", err)
 	}
 	if _, err := io.Copy(part, file); err != nil {
-		return "", fmt.Errorf("failed to copy file data: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to copy file data: %v", err)
 	}
 
 	// Add model field
 	if err := writer.WriteField("model", "whisper-1"); err != nil {
-		return "", fmt.Errorf("failed to write model field: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to write model field: %v", err)
+	}
+
+	// Add response_format field for verbose_json to get timestamps
+	if err := writer.WriteField("response_format", "verbose_json"); err != nil {
+		return TranscriptData{}, fmt.Errorf("failed to write response_format field: %v", err)
+	}
+
+	// Add timestamp_granularities for segment-level timestamps
+	if err := writer.WriteField("timestamp_granularities[]", "segment"); err != nil {
+		return TranscriptData{}, fmt.Errorf("failed to write timestamp_granularities field: %v", err)
 	}
 
 	// Close writer to finalize multipart data
 	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("failed to close multipart writer: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to close multipart writer: %v", err)
 	}
 
 	// Create HTTP request
 	req, err := http.NewRequest("POST", "https://api.openai.com/v1/audio/transcriptions", body)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to create request: %v", err)
 	}
 
 	// Set headers
@@ -255,30 +342,56 @@ func transcribeAudio(audioFilePath string) (string, error) {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to send request: %v", err)
 	}
 	defer resp.Body.Close()
 
 	// Read response
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to read response: %v", err)
 	}
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenAI API returned status %d: %s", resp.StatusCode, string(respBody))
+		return TranscriptData{}, fmt.Errorf("OpenAI API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// Parse response
+	// Parse verbose_json response
 	var result struct {
-		Text string `json:"text"`
+		Text     string `json:"text"`
+		Language string `json:"language"`
+		Duration float64 `json:"duration"`
+		Segments []struct {
+			ID    int     `json:"id"`
+			Start float64 `json:"start"`
+			End   float64 `json:"end"`
+			Text  string  `json:"text"`
+		} `json:"segments"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response: %v", err)
+		return TranscriptData{}, fmt.Errorf("failed to parse response: %v", err)
 	}
 
-	return result.Text, nil
+	// Convert segments to our format
+	segments := make([]TranscriptSegment, len(result.Segments))
+	for i, seg := range result.Segments {
+		segments[i] = TranscriptSegment{
+			ID:    seg.ID,
+			Start: seg.Start,
+			End:   seg.End,
+			Text:  seg.Text,
+		}
+	}
+
+	transcript := TranscriptData{
+		Text:     result.Text,
+		Segments: segments,
+		Language: result.Language,
+		Duration: result.Duration,
+	}
+
+	return transcript, nil
 }
 
 // isValidYouTubeURL validates if a URL is a valid YouTube URL

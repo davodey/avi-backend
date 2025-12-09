@@ -117,11 +117,55 @@ docker run -p 5055:5055 --env-file .env avi-backend
   {
     "ok": true,
     "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+    "video": {
+      "title": "Video Title",
+      "description": "Video description...",
+      "channel": "Channel Name",
+      "channel_url": "https://www.youtube.com/@channel",
+      "duration": 300,
+      "upload_date": "20231215",
+      "view_count": 123456,
+      "thumbnail": "https://i.ytimg.com/vi/VIDEO_ID/maxresdefault.jpg"
+    },
     "transcript": {
-      "text": "... full transcript ..."
+      "text": "Full transcript text...",
+      "language": "en",
+      "duration": 298.5,
+      "segments": [
+        {
+          "id": 0,
+          "start": 0.0,
+          "end": 5.5,
+          "text": "First segment of the transcript."
+        },
+        {
+          "id": 1,
+          "start": 5.5,
+          "end": 12.0,
+          "text": "Second segment continues here."
+        }
+      ]
     }
   }
   ```
+
+  **Response Fields:**
+  - `video.title` - Title of the YouTube video
+  - `video.description` - Full description of the video
+  - `video.channel` - Channel/uploader name
+  - `video.channel_url` - URL to the channel
+  - `video.duration` - Duration in seconds
+  - `video.upload_date` - Upload date in YYYYMMDD format
+  - `video.view_count` - Number of views
+  - `video.thumbnail` - URL to video thumbnail
+  - `transcript.text` - Full transcript as plain text
+  - `transcript.language` - Detected language code (e.g., "en")
+  - `transcript.duration` - Audio duration in seconds
+  - `transcript.segments` - Array of timestamped segments
+  - `segment.start` - Start time in seconds
+  - `segment.end` - End time in seconds
+  - `segment.text` - Text for this time segment
+
 - **Example curl:**
   ```bash
   curl -X POST http://localhost:5055/api/transcribe \
@@ -156,8 +200,11 @@ If you encounter YouTube bot detection issues, you can provide cookies:
 
 ## Notes
 
+- **Article Writing Friendly**: The service returns formatted transcripts with timestamps, making it easy to reference specific sections when writing articles
+- **Rich Metadata**: Video information (title, description, channel, views, etc.) is included to provide context for article creation
+- **Timestamped Segments**: Each transcript segment includes start/end times, allowing you to jump to specific parts of the video
 - Temporary files are created in your OS temp directory and automatically cleaned up after each request
-- The service uses OpenAI's `whisper-1` model for transcription
+- The service uses OpenAI's `whisper-1` model for transcription with verbose JSON output
 - CORS is enabled by default for all origins (restrict in production if needed)
 - For very long videos, requests may take several minutes; consider increasing client timeouts
 - The Go implementation provides better performance and lower memory usage compared to the Node.js version
