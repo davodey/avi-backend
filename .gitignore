@@ -1,5 +1,11 @@
-# Dependencies
+# Dependencies (legacy Node.js - no longer used)
 node_modules/
+package-lock.json
+
+# Legacy TypeScript build artifacts (migrated to Go)
+src/
+dist/
+tsconfig.json
 
 # Go binaries
 avi-backend
