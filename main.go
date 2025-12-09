@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -169,7 +170,18 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 	metadata, audioFile, err := downloadYouTubeAudioGo(req.URL, tempDir)
 	if err != nil {
 		log.Printf("Error downloading YouTube audio: %v", err)
-		sendError(w, fmt.Sprintf("Failed to download YouTube audio: %v", err), http.StatusInternalServerError)
+
+		// Provide user-friendly error messages for common issues
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "age restriction") {
+			sendError(w, "This video is age-restricted and cannot be processed. Please try a different video.", http.StatusBadRequest)
+		} else if strings.Contains(errMsg, "embedding") && strings.Contains(errMsg, "disabled") {
+			sendError(w, "This video has embedding disabled and cannot be processed. Please try a different video.", http.StatusBadRequest)
+		} else if strings.Contains(errMsg, "private") || strings.Contains(errMsg, "unavailable") {
+			sendError(w, "This video is private or unavailable. Please try a different video.", http.StatusBadRequest)
+		} else {
+			sendError(w, fmt.Sprintf("Failed to download YouTube audio: %v", err), http.StatusInternalServerError)
+		}
 		return
 	}
 
