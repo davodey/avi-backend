@@ -91,6 +91,124 @@ docker build -t avi-backend .
 docker run -p 5055:5055 --env-file .env avi-backend
 ```
 
+## Digital Ocean Deployment
+
+There are three ways to deploy this Go backend to Digital Ocean:
+
+### Option 1: App Platform with Dockerfile (Recommended)
+
+This uses the included Dockerfile for a containerized deployment.
+
+1. **Push your code to GitHub** (already done if using the claude branch)
+
+2. **Create a new App in Digital Ocean**:
+   - Go to [Digital Ocean App Platform](https://cloud.digitalocean.com/apps)
+   - Click "Create App"
+   - Select your GitHub repository: `davodey/avi-backend`
+   - Select branch: `main` (or your deployment branch)
+
+3. **Configure the App**:
+   - **Build Method**: Select "Dockerfile"
+   - **Dockerfile Path**: `Dockerfile`
+   - **HTTP Port**: `5055`
+   - **Health Check Path**: `/api/health`
+
+4. **Set Environment Variables**:
+   - `PORT` = `5055`
+   - `OPENAI_API_KEY` = `your-openai-api-key` (mark as secret)
+   - `YTDLP_COOKIES_FILE` = `./cookies.txt` (optional)
+
+5. **Instance Size**:
+   - Basic (1 GB RAM, 1 vCPU) or higher depending on load
+
+6. **Deploy**: Click "Create Resources" and wait for deployment
+
+### Option 2: App Platform with Native Go Build
+
+This uses Digital Ocean's Go buildpack for faster builds.
+
+1. **Use the App Spec file**:
+   ```bash
+   doctl apps create --spec .do/app-native.yaml
+   ```
+
+   Or manually configure:
+   - **Build Command**:
+     ```bash
+     pip3 install --user yt-dlp && go build -o avi-backend main.go
+     ```
+   - **Run Command**: `./avi-backend`
+
+2. **Set Environment Variables** (same as Option 1)
+
+3. **Deploy**
+
+### Option 3: Update Existing App
+
+If you already have an app deployed with `npm run dev`:
+
+1. **Go to your App in Digital Ocean Dashboard**
+
+2. **Update Settings → Components → Edit Component**:
+   - **Build Command**: `pip3 install --user yt-dlp && go build -o avi-backend main.go`
+   - **Run Command**: `./avi-backend`
+   - **HTTP Port**: `5055`
+
+   Or switch to Dockerfile:
+   - **Build Method**: Dockerfile
+   - **Dockerfile Path**: `Dockerfile`
+
+3. **Update Environment Variables**:
+   - Remove Node.js specific variables
+   - Add Go variables (see Option 1)
+
+4. **Save and Deploy**
+
+### Using App Spec File
+
+You can also deploy using the included App Spec files:
+
+```bash
+# For Dockerfile-based deployment
+doctl apps create --spec .do/app.yaml
+
+# For native Go build
+doctl apps create --spec .do/app-native.yaml
+
+# Or update existing app
+doctl apps update YOUR_APP_ID --spec .do/app.yaml
+```
+
+### Important Notes for Digital Ocean:
+
+- **yt-dlp dependency**: Both deployment methods include yt-dlp installation
+- **Go version**: Digital Ocean uses Go 1.21+ by default
+- **Build time**: Dockerfile builds take ~3-5 minutes, native builds ~1-2 minutes
+- **Health checks**: The `/api/health` endpoint is configured for monitoring
+- **Secrets**: Always mark `OPENAI_API_KEY` as a secret in the environment variables
+- **Scaling**: For high traffic, increase instance size or enable autoscaling
+
+### Troubleshooting Digital Ocean Deployment:
+
+**Build fails with "go: command not found"**:
+- Ensure you're using Dockerfile or the native Go buildpack is detected
+- Check that `go.mod` is in the repository root
+
+**yt-dlp not found**:
+- Verify the build command includes `pip3 install --user yt-dlp`
+- For Dockerfile, it's already included in the image
+
+**Health check failing**:
+- Ensure `PORT` environment variable is set to `5055`
+- Check that the app is listening on `0.0.0.0:5055` not `localhost:5055`
+
+**App crashes on startup**:
+- Check logs: `doctl apps logs YOUR_APP_ID`
+- Verify `OPENAI_API_KEY` is set correctly
+- Ensure the binary has execute permissions (handled automatically)
+
+
+
 ## API
 
 ### Health Check
