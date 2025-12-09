@@ -5,7 +5,7 @@ import { z } from 'zod';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
-import ytdl from '@distube/ytdl-core';
+import YTDlpWrap from 'yt-dlp-wrap';
 import { OpenAI } from 'openai';
 const app = express();
 app.use(cors());
@@ -37,45 +37,27 @@ app.post('/api/transcribe', async (req, res) => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-audio-'));
         const audioPath = path.join(tempDir, 'audio.mp3');
         console.log(`[download] Downloading audio from: ${url}`);
-        // Load cookies if available to bypass bot detection
-        let cookies = '';
+        // Initialize yt-dlp
+        const ytDlpWrap = new YTDlpWrap();
+        // Build yt-dlp arguments
+        const args = [
+            '--extract-audio',
+            '--audio-format', 'mp3',
+            '--audio-quality', '0', // Best quality
+            '--output', audioPath,
+            '--no-playlist',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        ];
+        // Add cookies file if available
         const cookiesFile = process.env.YTDLP_COOKIES_FILE;
         if (cookiesFile && fs.existsSync(cookiesFile)) {
-            const cookieLines = fs.readFileSync(cookiesFile, 'utf-8').split('\n');
-            // Convert Netscape cookie format to header format
-            const cookieValues = cookieLines
-                .filter(line => line && !line.startsWith('#'))
-                .map(line => {
-                const parts = line.split('\t');
-                if (parts.length >= 7) {
-                    return `${parts[5]}=${parts[6]}`;
-                }
-                return '';
-            })
-                .filter(Boolean);
-            cookies = cookieValues.join('; ');
+            args.push('--cookies', cookiesFile);
             console.log(`[download] Using cookies from ${cookiesFile}`);
         }
-        // Download audio directly as readable stream
-        const audioStream = ytdl(url, {
-            filter: 'audioonly',
-            quality: 'lowestaudio',
-            requestOptions: {
-                headers: {
-                    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                    'accept-language': 'en-US,en;q=0.9',
-                    ...(cookies ? { cookie: cookies } : {}),
-                },
-            },
-        });
-        // Save to file
-        await new Promise((resolve, reject) => {
-            const writeStream = fs.createWriteStream(audioPath);
-            audioStream.pipe(writeStream);
-            audioStream.on('error', reject);
-            writeStream.on('error', reject);
-            writeStream.on('finish', resolve);
-        });
+        // Add the URL as the last argument
+        args.push(url);
+        // Download using yt-dlp
+        await ytDlpWrap.execPromise(args);
         console.log(`[download] Audio downloaded to ${audioPath}`);
         // Transcribe with OpenAI Whisper
         console.log(`[transcribe] Sending to OpenAI Whisper...`);
@@ -108,6 +90,6 @@ app.post('/api/transcribe', async (req, res) => {
 });
 app.listen(PORT, () => {
     console.log(`Transcription service listening on http://localhost:${PORT}`);
-    console.log(`Using ytdl + OpenAI Whisper - WORKING solution`);
+    console.log(`Using yt-dlp + OpenAI Whisper - Enhanced bot detection evasion`);
 });
 //# sourceMappingURL=server.js.map
