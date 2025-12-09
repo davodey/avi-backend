@@ -78,9 +78,14 @@ app.post('/api/transcribe', async (req, res) => {
         dlChunkSize: 0, // disable chunking to reduce throttling edge cases
         requestOptions: {
           headers: {
-            // Some environments require a user-agent
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            // Updated user-agent to latest Chrome version to bypass bot detection
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'accept-language': 'en-US,en;q=0.9',
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'accept-encoding': 'gzip, deflate, br',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'none',
           },
         },
       });
@@ -127,6 +132,12 @@ app.post('/api/transcribe', async (req, res) => {
           restrictFilenames: true,
           // reduce console noise from yt-dlp itself; we log stderr if it fails
           quiet: true,
+          // Use cookies from browser to bypass YouTube bot detection
+          // Try Chrome first, will fallback to other browsers if Chrome cookies not available
+          cookiesFromBrowser: 'chrome',
+          // Additional options to help bypass bot detection
+          extractor_args: 'youtube:player_client=android,web',
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         });
         console.log('[ytdlp] done');
       } catch (e: any) {
