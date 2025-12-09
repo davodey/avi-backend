@@ -2,7 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { z } from 'zod';
-import { YoutubeTranscript } from 'youtube-transcript';
+// @ts-ignore - no type definitions available
+import { getSubtitles } from 'youtube-captions-scraper';
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -11,7 +12,6 @@ const BodySchema = z.object({
     url: z.string().url('Invalid URL').refine((u) => /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//.test(u), {
         message: 'URL must be a YouTube link',
     }),
-    // Optional: specify language preference
     lang: z.string().optional(),
 });
 // Healthcheck
@@ -26,12 +26,11 @@ app.post('/api/transcribe', async (req, res) => {
     const { url, lang } = parse.data;
     try {
         // Extract video ID from various YouTube URL formats
-        // Supports: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID
         let videoId = null;
         const patterns = [
-            /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\?\/]+)/, // Regular videos
-            /youtube\.com\/shorts\/([^&\?\/]+)/, // YouTube Shorts
-            /youtube\.com\/embed\/([^&\?\/]+)/, // Embeds
+            /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\?\/]+)/,
+            /youtube\.com\/shorts\/([^&\?\/]+)/,
+            /youtube\.com\/embed\/([^&\?\/]+)/,
         ];
         for (const pattern of patterns) {
             const match = url.match(pattern);
@@ -43,57 +42,48 @@ app.post('/api/transcribe', async (req, res) => {
         if (!videoId) {
             throw new Error('Could not extract video ID from URL');
         }
-        console.log(`[transcript] Fetching transcript for video ID: ${videoId}`);
-        // Fetch transcript from YouTube captions using video ID
-        // Try without language first to auto-detect, fallback to specified language
-        let transcriptData;
-        try {
-            transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
+        console.log(`[transcript] Fetching captions for video ID: ${videoId}`);
+        // Fetch captions using youtube-captions-scraper
+        const captions = await getSubtitles({
+            videoID: videoId,
+            lang: lang || 'en',
+        });
+        if (!captions || captions.length === 0) {
+            throw new Error('No captions found for this video');
         }
-        catch (err) {
-            // If auto-detect fails and user specified a language, try with that
-            if (lang) {
-                transcriptData = await YoutubeTranscript.fetchTranscript(videoId, { lang });
-            }
-            else {
-                throw err;
-            }
-        }
-        // Combine all transcript segments into full text
-        const fullText = transcriptData.map(segment => segment.text).join(' ');
-        // Format response to match OpenAI Whisper format for compatibility
+        // Combine all caption segments into full text
+        const fullText = captions.map((caption) => caption.text).join(' ');
+        // Format response
         res.json({
             ok: true,
             url,
-            method: 'youtube-captions',
+            method: 'youtube-captions-scraper',
             transcript: {
                 text: fullText,
             },
-            // Include detailed segments if needed
-            segments: transcriptData.map(segment => ({
-                text: segment.text,
-                start: segment.offset / 1000, // Convert ms to seconds
-                duration: segment.duration / 1000, // Convert ms to seconds
+            segments: captions.map((caption) => ({
+                text: caption.text,
+                start: caption.start,
+                duration: caption.dur,
             })),
         });
-        console.log(`[transcript] Successfully fetched transcript (${transcriptData.length} segments)`);
+        console.log(`[transcript] Successfully fetched ${captions.length} caption segments`);
     }
     catch (err) {
         console.error('[transcript] error:', err?.message || err);
-        // Provide helpful error messages
         let errorMessage = err?.message || 'Unknown error';
-        if (errorMessage.includes('Could not find captions') || errorMessage.includes('Transcript is disabled')) {
-            errorMessage = 'This video does not have captions/subtitles available. Enable captions on YouTube or try a different video.';
+        if (errorMessage.includes('Could not find captions') || errorMessage.includes('No captions')) {
+            errorMessage = 'This video does not have captions/subtitles available in the requested language.';
         }
         res.status(500).json({
             ok: false,
             error: errorMessage,
-            hint: 'This service requires videos to have captions enabled. Most videos have auto-generated captions.',
+            hint: 'Try a different language or ensure the video has captions enabled.',
         });
     }
 });
 app.listen(PORT, () => {
     console.log(`Transcription service listening on http://localhost:${PORT}`);
-    console.log(`Using youtube-transcript (caption fetching) - no downloads required`);
+    console.log(`Using youtube-captions-scraper - fetching captions directly from YouTube`);
 });
 //# sourceMappingURL=server.js.map
