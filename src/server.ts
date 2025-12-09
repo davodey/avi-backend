@@ -137,10 +137,15 @@ app.post('/api/transcribe', async (req, res) => {
           userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         };
 
-        // Only use browser cookies if explicitly configured (for local dev environments)
-        // On headless servers, this won't work and will be skipped
+        // Cookie support (optional, for when bot detection is strict)
+        // Option 1: Use browser cookies (only works if Chrome is installed with logged-in profile)
         if (process.env.YTDLP_USE_BROWSER_COOKIES === 'true') {
           ytdlpOptions.cookiesFromBrowser = process.env.YTDLP_BROWSER || 'chrome';
+        }
+        // Option 2: Use exported cookies file (recommended for servers)
+        // Export cookies from YouTube using browser extension, then upload to server
+        else if (process.env.YTDLP_COOKIES_FILE) {
+          ytdlpOptions.cookies = process.env.YTDLP_COOKIES_FILE;
         }
 
         const result = await youtubedl(url, ytdlpOptions);
