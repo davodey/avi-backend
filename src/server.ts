@@ -136,7 +136,7 @@ app.post('/api/transcribe', async (req, res) => {
           // Try Chrome first, will fallback to other browsers if Chrome cookies not available
           cookiesFromBrowser: 'chrome',
           // Additional options to help bypass bot detection
-          extractor_args: 'youtube:player_client=android,web',
+          extractorArgs: 'youtube:player_client=android,web',
           userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         });
         console.log('[ytdlp] done');
