@@ -25,9 +25,27 @@ app.post('/api/transcribe', async (req, res) => {
     }
     const { url, lang } = parse.data;
     try {
-        console.log(`[transcript] Fetching transcript for: ${url}`);
-        // Fetch transcript from YouTube captions
-        const transcriptData = await YoutubeTranscript.fetchTranscript(url, {
+        // Extract video ID from various YouTube URL formats
+        // Supports: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID
+        let videoId = null;
+        const patterns = [
+            /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\?\/]+)/, // Regular videos
+            /youtube\.com\/shorts\/([^&\?\/]+)/, // YouTube Shorts
+            /youtube\.com\/embed\/([^&\?\/]+)/, // Embeds
+        ];
+        for (const pattern of patterns) {
+            const match = url.match(pattern);
+            if (match && match[1]) {
+                videoId = match[1];
+                break;
+            }
+        }
+        if (!videoId) {
+            throw new Error('Could not extract video ID from URL');
+        }
+        console.log(`[transcript] Fetching transcript for video ID: ${videoId}`);
+        // Fetch transcript from YouTube captions using video ID
+        const transcriptData = await YoutubeTranscript.fetchTranscript(videoId, {
             lang: lang || 'en',
         });
         // Combine all transcript segments into full text
