@@ -120,7 +120,7 @@ app.post('/api/transcribe', async (req, res) => {
       console.warn('[fallback] ytdl-core/ffmpeg path failed:', primaryErr?.message || primaryErr);
       const outTemplate = path.join(tempDir!, 'audio.%(ext)s');
       try {
-        const result = await youtubedl(url, {
+        const ytdlpOptions: any = {
           output: outTemplate,
           format: 'ba/bestaudio',
           noPlaylist: true,
@@ -132,13 +132,18 @@ app.post('/api/transcribe', async (req, res) => {
           restrictFilenames: true,
           // reduce console noise from yt-dlp itself; we log stderr if it fails
           quiet: true,
-          // Use cookies from browser to bypass YouTube bot detection
-          // Try Chrome first, will fallback to other browsers if Chrome cookies not available
-          cookiesFromBrowser: 'chrome',
-          // Additional options to help bypass bot detection
-          extractorArgs: 'youtube:player_client=android,web',
+          // Use Android/iOS mobile clients which are less restricted
+          extractorArgs: 'youtube:player_client=android,ios,mweb',
           userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        });
+        };
+
+        // Only use browser cookies if explicitly configured (for local dev environments)
+        // On headless servers, this won't work and will be skipped
+        if (process.env.YTDLP_USE_BROWSER_COOKIES === 'true') {
+          ytdlpOptions.cookiesFromBrowser = process.env.YTDLP_BROWSER || 'chrome';
+        }
+
+        const result = await youtubedl(url, ytdlpOptions);
         console.log('[ytdlp] done');
       } catch (e: any) {
         console.error('[ytdlp] error:', e?.stderr || e?.stdout || e?.message || e);
