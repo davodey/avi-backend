@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git
@@ -21,15 +21,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 # Runtime stage
 FROM alpine:latest
 
-# Install runtime dependencies
+# Install runtime dependencies (only ffmpeg for audio conversion)
 RUN apk add --no-cache \
     ca-certificates \
-    python3 \
-    py3-pip \
     ffmpeg
-
-# Install yt-dlp
-RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
 WORKDIR /app
 
