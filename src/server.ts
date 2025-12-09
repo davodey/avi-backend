@@ -7,7 +7,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import { promisify } from 'node:util';
 import { pipeline as _pipeline } from 'node:stream';
-import ytdl from 'ytdl-core';
+import ytdl from '@distube/ytdl-core';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 import { OpenAI } from 'openai';
@@ -72,23 +72,29 @@ app.post('/api/transcribe', async (req, res) => {
     let usedFallback = false;
 
     try {
-      const audioStream = ytdl(url, {
+      // @distube/ytdl-core has better bot detection bypassing built-in
+      const ytdlOptions: any = {
         filter: 'audioonly',
         quality: 'highestaudio',
-        dlChunkSize: 0, // disable chunking to reduce throttling edge cases
+        dlChunkSize: 0,
         requestOptions: {
           headers: {
-            // Updated user-agent to latest Chrome version to bypass bot detection
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'accept-language': 'en-US,en;q=0.9',
             'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'accept-encoding': 'gzip, deflate, br',
             'sec-fetch-dest': 'document',
             'sec-fetch-mode': 'navigate',
             'sec-fetch-site': 'none',
           },
         },
-      });
+      };
+
+      // Add cookies if provided via environment variable
+      if (process.env.YTDL_COOKIES) {
+        ytdlOptions.requestOptions.headers.cookie = process.env.YTDL_COOKIES;
+      }
+
+      const audioStream = ytdl(url, ytdlOptions);
 
       audioStream.on('error', (e) => {
         console.error('[ytdl] error:', (e as any)?.message || e);
