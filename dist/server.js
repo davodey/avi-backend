@@ -37,10 +37,36 @@ app.post('/api/transcribe', async (req, res) => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-audio-'));
         const audioPath = path.join(tempDir, 'audio.mp3');
         console.log(`[download] Downloading audio from: ${url}`);
+        // Load cookies if available to bypass bot detection
+        let cookies = '';
+        const cookiesFile = process.env.YTDLP_COOKIES_FILE;
+        if (cookiesFile && fs.existsSync(cookiesFile)) {
+            const cookieLines = fs.readFileSync(cookiesFile, 'utf-8').split('\n');
+            // Convert Netscape cookie format to header format
+            const cookieValues = cookieLines
+                .filter(line => line && !line.startsWith('#'))
+                .map(line => {
+                const parts = line.split('\t');
+                if (parts.length >= 7) {
+                    return `${parts[5]}=${parts[6]}`;
+                }
+                return '';
+            })
+                .filter(Boolean);
+            cookies = cookieValues.join('; ');
+            console.log(`[download] Using cookies from ${cookiesFile}`);
+        }
         // Download audio directly as readable stream
         const audioStream = ytdl(url, {
             filter: 'audioonly',
-            quality: 'lowestaudio', // Faster download, good enough for transcription
+            quality: 'lowestaudio',
+            requestOptions: {
+                headers: {
+                    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    'accept-language': 'en-US,en;q=0.9',
+                    ...(cookies ? { cookie: cookies } : {}),
+                },
+            },
         });
         // Save to file
         await new Promise((resolve, reject) => {
