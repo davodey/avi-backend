@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -21,8 +20,9 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	Port         string
-	OpenAIAPIKey string
+	Port           string
+	OpenAIAPIKey   string
+	CookiesFile    string
 }
 
 // TranscribeRequest represents the incoming transcription request
@@ -36,7 +36,6 @@ type TranscribeResponse struct {
 	URL        string          `json:"url"`
 	Video      VideoMetadata   `json:"video"`
 	Transcript TranscriptData  `json:"transcript"`
-	Source     string          `json:"source"` // "youtube_captions" or "whisper_api"
 }
 
 // VideoMetadata represents metadata about the video
@@ -53,10 +52,10 @@ type VideoMetadata struct {
 
 // TranscriptData represents the transcript data with segments
 type TranscriptData struct {
-	Text     string              `json:"text"`     // Full transcript text
+	Text     string             `json:"text"`     // Full transcript text
 	Segments []TranscriptSegment `json:"segments"` // Timestamped segments
-	Language string              `json:"language"` // Detected language
-	Duration float64             `json:"duration"` // Duration in seconds
+	Language string             `json:"language"` // Detected language
+	Duration float64            `json:"duration"` // Duration in seconds
 }
 
 // TranscriptSegment represents a timestamped segment of the transcript
@@ -92,6 +91,7 @@ func main() {
 	config = Config{
 		Port:         getEnv("PORT", "5055"),
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
+		CookiesFile:  getEnv("YTDLP_COOKIES_FILE", ""),
 	}
 
 	if config.OpenAIAPIKey == "" {
@@ -170,32 +170,24 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 	metadata, err := getVideoMetadata(req.URL)
 	if err != nil {
 		log.Printf("Error fetching video metadata: %v", err)
-		sendError(w, "Failed to fetch video metadata. The video may be private, age-restricted, or unavailable.", http.StatusBadRequest)
+		sendError(w, fmt.Sprintf("Failed to fetch video metadata: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Strategy 1: Try to get YouTube's native captions first (faster, no bot detection)
-	log.Printf("Attempting to fetch YouTube captions for: %s", metadata.Title)
-	transcript, source, err := getYouTubeCaptions(req.URL, tempDir)
-
+	// Download audio from YouTube
+	audioFile, err := downloadYouTubeAudio(req.URL, tempDir)
 	if err != nil {
-		// Strategy 2: Fall back to downloading audio and using Whisper
-		log.Printf("Captions not available, falling back to audio download: %v", err)
+		log.Printf("Error downloading YouTube audio: %v", err)
+		sendError(w, fmt.Sprintf("Failed to download YouTube audio: %v", err), http.StatusInternalServerError)
+		return
+	}
 
-		audioFile, err := downloadYouTubeAudio(req.URL, tempDir)
-		if err != nil {
-			log.Printf("Error downloading YouTube audio: %v", err)
-			sendError(w, "Failed to process video. Try a different video or check if it's publicly accessible.", http.StatusInternalServerError)
-			return
-		}
-
-		transcript, err = transcribeAudioWithTimestamps(audioFile)
-		if err != nil {
-			log.Printf("Error transcribing audio: %v", err)
-			sendError(w, fmt.Sprintf("Failed to transcribe audio: %v", err), http.StatusInternalServerError)
-			return
-		}
-		source = "whisper_api"
+	// Transcribe audio using OpenAI Whisper with timestamps
+	transcript, err := transcribeAudioWithTimestamps(audioFile)
+	if err != nil {
+		log.Printf("Error transcribing audio: %v", err)
+		sendError(w, fmt.Sprintf("Failed to transcribe audio: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	// Send response
@@ -204,153 +196,31 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 		URL:        req.URL,
 		Video:      metadata,
 		Transcript: transcript,
-		Source:     source,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-// getYouTubeCaptions tries to fetch YouTube's native captions/subtitles
-func getYouTubeCaptions(url, tempDir string) (TranscriptData, string, error) {
-	// Try to download subtitles using yt-dlp
-	args := []string{
-		"--write-auto-sub",  // Get auto-generated subtitles
-		"--sub-lang", "en",  // Prefer English
-		"--skip-download",   // Don't download video
-		"--sub-format", "vtt",
-		"-o", filepath.Join(tempDir, "video"),
-		"--extractor-args", "youtube:player_client=android",
-		url,
-	}
-
-	cmd := exec.Command("yt-dlp", args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return TranscriptData{}, "", fmt.Errorf("failed to download captions: %v, output: %s", err, string(output))
-	}
-
-	// Find the generated subtitle file
-	files, _ := filepath.Glob(filepath.Join(tempDir, "video*.vtt"))
-	if len(files) == 0 {
-		return TranscriptData{}, "", fmt.Errorf("no subtitle files found")
-	}
-
-	// Parse VTT file
-	transcript, err := parseVTTFile(files[0])
-	if err != nil {
-		return TranscriptData{}, "", fmt.Errorf("failed to parse VTT: %v", err)
-	}
-
-	log.Printf("Successfully extracted YouTube captions")
-	return transcript, "youtube_captions", nil
-}
-
-// parseVTTFile parses a WebVTT subtitle file
-func parseVTTFile(filename string) (TranscriptData, error) {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return TranscriptData{}, err
-	}
-
-	lines := strings.Split(string(content), "\n")
-	var segments []TranscriptSegment
-	var fullText strings.Builder
-	segmentID := 0
-
-	for i := 0; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-
-		// Skip WEBVTT header and blank lines
-		if line == "" || strings.HasPrefix(line, "WEBVTT") || strings.HasPrefix(line, "Kind:") || strings.HasPrefix(line, "Language:") {
-			continue
-		}
-
-		// Check if this is a timestamp line
-		if strings.Contains(line, "-->") {
-			parts := strings.Split(line, "-->")
-			if len(parts) != 2 {
-				continue
-			}
-
-			startTime := parseVTTTime(strings.TrimSpace(parts[0]))
-			endTime := parseVTTTime(strings.TrimSpace(parts[1]))
-
-			// Get the text (next non-empty line)
-			i++
-			var textLines []string
-			for i < len(lines) && strings.TrimSpace(lines[i]) != "" {
-				textLines = append(textLines, strings.TrimSpace(lines[i]))
-				i++
-			}
-
-			if len(textLines) > 0 {
-				text := strings.Join(textLines, " ")
-				// Remove VTT formatting tags
-				text = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(text, "")
-
-				segments = append(segments, TranscriptSegment{
-					ID:    segmentID,
-					Start: startTime,
-					End:   endTime,
-					Text:  text,
-				})
-				fullText.WriteString(text)
-				fullText.WriteString(" ")
-				segmentID++
-			}
-		}
-	}
-
-	duration := 0.0
-	if len(segments) > 0 {
-		duration = segments[len(segments)-1].End
-	}
-
-	return TranscriptData{
-		Text:     strings.TrimSpace(fullText.String()),
-		Segments: segments,
-		Language: "en",
-		Duration: duration,
-	}, nil
-}
-
-// parseVTTTime converts VTT timestamp to seconds
-func parseVTTTime(timestamp string) float64 {
-	// Format: 00:00:00.000 or 00:00.000
-	timestamp = strings.TrimSpace(timestamp)
-	parts := strings.Split(timestamp, ":")
-
-	var hours, minutes, seconds float64
-
-	if len(parts) == 3 {
-		fmt.Sscanf(parts[0], "%f", &hours)
-		fmt.Sscanf(parts[1], "%f", &minutes)
-		fmt.Sscanf(parts[2], "%f", &seconds)
-	} else if len(parts) == 2 {
-		fmt.Sscanf(parts[0], "%f", &minutes)
-		fmt.Sscanf(parts[1], "%f", &seconds)
-	}
-
-	return hours*3600 + minutes*60 + seconds
-}
-
 // getVideoMetadata fetches video metadata using yt-dlp
 func getVideoMetadata(url string) (VideoMetadata, error) {
+	// Use yt-dlp to get video info as JSON
 	args := []string{
 		"--dump-json",
 		"--no-playlist",
 		"--skip-download",
-		"--extractor-args", "youtube:player_client=android",
+		"--extractor-args", "youtube:player_client=android,web",
+		"--no-check-certificates",
 		url,
 	}
 
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return VideoMetadata{}, fmt.Errorf("failed to fetch metadata: %v", err)
+		return VideoMetadata{}, fmt.Errorf("yt-dlp failed to fetch metadata: %v, output: %s", err, string(output))
 	}
 
+	// Parse the JSON output
 	var videoInfo struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
@@ -363,10 +233,10 @@ func getVideoMetadata(url string) (VideoMetadata, error) {
 	}
 
 	if err := json.Unmarshal(output, &videoInfo); err != nil {
-		return VideoMetadata{}, fmt.Errorf("failed to parse metadata: %v", err)
+		return VideoMetadata{}, fmt.Errorf("failed to parse video metadata: %v", err)
 	}
 
-	return VideoMetadata{
+	metadata := VideoMetadata{
 		Title:       videoInfo.Title,
 		Description: videoInfo.Description,
 		Channel:     videoInfo.Uploader,
@@ -375,28 +245,44 @@ func getVideoMetadata(url string) (VideoMetadata, error) {
 		UploadDate:  videoInfo.UploadDate,
 		ViewCount:   videoInfo.ViewCount,
 		Thumbnail:   videoInfo.Thumbnail,
-	}, nil
+	}
+
+	return metadata, nil
 }
 
 // downloadYouTubeAudio downloads audio from a YouTube URL using yt-dlp
 func downloadYouTubeAudio(url, tempDir string) (string, error) {
 	outputPath := filepath.Join(tempDir, "audio.mp3")
 
+	// Build yt-dlp command arguments with OAuth support
 	args := []string{
-		"-x",
-		"--audio-format", "mp3",
-		"-o", outputPath,
-		"--no-playlist",
-		"--extractor-args", "youtube:player_client=android",
-		url,
+		"-x",                    // Extract audio
+		"--audio-format", "mp3", // Convert to MP3
+		"-o", outputPath,        // Output path
+		"--no-playlist",         // Don't download playlists
+		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"--extractor-args", "youtube:player_client=android,web",  // Use mobile client to avoid restrictions
+		"--no-check-certificates", // Skip SSL verification issues
 	}
 
+	// Add cookies file if configured
+	if config.CookiesFile != "" {
+		if _, err := os.Stat(config.CookiesFile); err == nil {
+			args = append(args, "--cookies", config.CookiesFile)
+		}
+	}
+
+	// Add URL as last argument
+	args = append(args, url)
+
+	// Execute yt-dlp command
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("yt-dlp failed: %v, output: %s", err, string(output))
 	}
 
+	// Verify the file was created
 	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("audio file was not created")
 	}
@@ -404,17 +290,20 @@ func downloadYouTubeAudio(url, tempDir string) (string, error) {
 	return outputPath, nil
 }
 
-// transcribeAudioWithTimestamps transcribes an audio file using OpenAI Whisper API
+// transcribeAudioWithTimestamps transcribes an audio file using OpenAI Whisper API with timestamp segments
 func transcribeAudioWithTimestamps(audioFilePath string) (TranscriptData, error) {
+	// Open audio file
 	file, err := os.Open(audioFilePath)
 	if err != nil {
 		return TranscriptData{}, fmt.Errorf("failed to open audio file: %v", err)
 	}
 	defer file.Close()
 
+	// Create multipart form data
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
+	// Add file field
 	part, err := writer.CreateFormFile("file", filepath.Base(audioFilePath))
 	if err != nil {
 		return TranscriptData{}, fmt.Errorf("failed to create form file: %v", err)
@@ -423,30 +312,37 @@ func transcribeAudioWithTimestamps(audioFilePath string) (TranscriptData, error)
 		return TranscriptData{}, fmt.Errorf("failed to copy file data: %v", err)
 	}
 
+	// Add model field
 	if err := writer.WriteField("model", "whisper-1"); err != nil {
 		return TranscriptData{}, fmt.Errorf("failed to write model field: %v", err)
 	}
 
+	// Add response_format field for verbose_json to get timestamps
 	if err := writer.WriteField("response_format", "verbose_json"); err != nil {
 		return TranscriptData{}, fmt.Errorf("failed to write response_format field: %v", err)
 	}
 
+	// Add timestamp_granularities for segment-level timestamps
 	if err := writer.WriteField("timestamp_granularities[]", "segment"); err != nil {
 		return TranscriptData{}, fmt.Errorf("failed to write timestamp_granularities field: %v", err)
 	}
 
+	// Close writer to finalize multipart data
 	if err := writer.Close(); err != nil {
 		return TranscriptData{}, fmt.Errorf("failed to close multipart writer: %v", err)
 	}
 
+	// Create HTTP request
 	req, err := http.NewRequest("POST", "https://api.openai.com/v1/audio/transcriptions", body)
 	if err != nil {
 		return TranscriptData{}, fmt.Errorf("failed to create request: %v", err)
 	}
 
+	// Set headers
 	req.Header.Set("Authorization", "Bearer "+config.OpenAIAPIKey)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
+	// Send request
 	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -454,18 +350,21 @@ func transcribeAudioWithTimestamps(audioFilePath string) (TranscriptData, error)
 	}
 	defer resp.Body.Close()
 
+	// Read response
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return TranscriptData{}, fmt.Errorf("failed to read response: %v", err)
 	}
 
+	// Check status code
 	if resp.StatusCode != http.StatusOK {
 		return TranscriptData{}, fmt.Errorf("OpenAI API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
+	// Parse verbose_json response
 	var result struct {
-		Text     string  `json:"text"`
-		Language string  `json:"language"`
+		Text     string `json:"text"`
+		Language string `json:"language"`
 		Duration float64 `json:"duration"`
 		Segments []struct {
 			ID    int     `json:"id"`
@@ -478,6 +377,7 @@ func transcribeAudioWithTimestamps(audioFilePath string) (TranscriptData, error)
 		return TranscriptData{}, fmt.Errorf("failed to parse response: %v", err)
 	}
 
+	// Convert segments to our format
 	segments := make([]TranscriptSegment, len(result.Segments))
 	for i, seg := range result.Segments {
 		segments[i] = TranscriptSegment{
@@ -488,12 +388,14 @@ func transcribeAudioWithTimestamps(audioFilePath string) (TranscriptData, error)
 		}
 	}
 
-	return TranscriptData{
+	transcript := TranscriptData{
 		Text:     result.Text,
 		Segments: segments,
 		Language: result.Language,
 		Duration: result.Duration,
-	}, nil
+	}
+
+	return transcript, nil
 }
 
 // isValidYouTubeURL validates if a URL is a valid YouTube URL
@@ -501,6 +403,8 @@ func isValidYouTubeURL(url string) bool {
 	if url == "" {
 		return false
 	}
+
+	// Check for youtube.com or youtu.be domains
 	youtubePattern := regexp.MustCompile(`(?i)(youtube\.com|youtu\.be)`)
 	return youtubePattern.MatchString(url)
 }
