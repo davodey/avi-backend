@@ -45,9 +45,20 @@ app.post('/api/transcribe', async (req, res) => {
         }
         console.log(`[transcript] Fetching transcript for video ID: ${videoId}`);
         // Fetch transcript from YouTube captions using video ID
-        const transcriptData = await YoutubeTranscript.fetchTranscript(videoId, {
-            lang: lang || 'en',
-        });
+        // Try without language first to auto-detect, fallback to specified language
+        let transcriptData;
+        try {
+            transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
+        }
+        catch (err) {
+            // If auto-detect fails and user specified a language, try with that
+            if (lang) {
+                transcriptData = await YoutubeTranscript.fetchTranscript(videoId, { lang });
+            }
+            else {
+                throw err;
+            }
+        }
         // Combine all transcript segments into full text
         const fullText = transcriptData.map(segment => segment.text).join(' ');
         // Format response to match OpenAI Whisper format for compatibility
