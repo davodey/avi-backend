@@ -21,8 +21,9 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	Port         string
-	OpenAIAPIKey string
+	Port            string
+	OpenAIAPIKey    string
+	YTDLPCookiesFile string
 }
 
 // TranscribeRequest represents the incoming transcription request
@@ -90,8 +91,9 @@ func main() {
 
 	// Initialize configuration
 	config = Config{
-		Port:         getEnv("PORT", "5055"),
-		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
+		Port:            getEnv("PORT", "5055"),
+		OpenAIAPIKey:    getEnv("OPENAI_API_KEY", ""),
+		YTDLPCookiesFile: getEnv("YTDLP_COOKIES_FILE", ""),
 	}
 
 	if config.OpenAIAPIKey == "" {
@@ -214,7 +216,7 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 // getYouTubeCaptions tries to fetch YouTube's native captions/subtitles
 func getYouTubeCaptions(url, tempDir string) (TranscriptData, string, error) {
 	// Try to download subtitles using yt-dlp
-	args := []string{
+	baseArgs := []string{
 		"--write-auto-sub",  // Get auto-generated subtitles
 		"--sub-lang", "en",  // Prefer English
 		"--skip-download",   // Don't download video
@@ -224,6 +226,7 @@ func getYouTubeCaptions(url, tempDir string) (TranscriptData, string, error) {
 		url,
 	}
 
+	args := addYTDLPCommonArgs(baseArgs)
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -337,7 +340,7 @@ func parseVTTTime(timestamp string) float64 {
 
 // getVideoMetadata fetches video metadata using yt-dlp
 func getVideoMetadata(url string) (VideoMetadata, error) {
-	args := []string{
+	baseArgs := []string{
 		"--dump-json",
 		"--no-playlist",
 		"--skip-download",
@@ -345,6 +348,7 @@ func getVideoMetadata(url string) (VideoMetadata, error) {
 		url,
 	}
 
+	args := addYTDLPCommonArgs(baseArgs)
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -382,7 +386,7 @@ func getVideoMetadata(url string) (VideoMetadata, error) {
 func downloadYouTubeAudio(url, tempDir string) (string, error) {
 	outputPath := filepath.Join(tempDir, "audio.mp3")
 
-	args := []string{
+	baseArgs := []string{
 		"-x",
 		"--audio-format", "mp3",
 		"-o", outputPath,
@@ -391,6 +395,7 @@ func downloadYouTubeAudio(url, tempDir string) (string, error) {
 		url,
 	}
 
+	args := addYTDLPCommonArgs(baseArgs)
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -521,4 +526,22 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// addYTDLPCommonArgs adds common yt-dlp arguments including cookies if available
+func addYTDLPCommonArgs(baseArgs []string) []string {
+	args := make([]string, len(baseArgs))
+	copy(args, baseArgs)
+
+	// Add cookies if configured and file exists
+	if config.YTDLPCookiesFile != "" {
+		if _, err := os.Stat(config.YTDLPCookiesFile); err == nil {
+			args = append(args, "--cookies", config.YTDLPCookiesFile)
+			log.Printf("Using cookies file: %s", config.YTDLPCookiesFile)
+		} else {
+			log.Printf("Cookies file not found: %s (continuing without cookies)", config.YTDLPCookiesFile)
+		}
+	}
+
+	return args
 }
