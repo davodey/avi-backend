@@ -222,7 +222,8 @@ func getYouTubeCaptions(url, tempDir string) (TranscriptData, string, error) {
 		"--skip-download",   // Don't download video
 		"--sub-format", "vtt",
 		"-o", filepath.Join(tempDir, "video"),
-		"--extractor-args", "youtube:player_client=android",
+		"--extractor-args", "youtube:player_client=android,web",
+		"--no-check-certificates",
 		url,
 	}
 
@@ -344,7 +345,8 @@ func getVideoMetadata(url string) (VideoMetadata, error) {
 		"--dump-json",
 		"--no-playlist",
 		"--skip-download",
-		"--extractor-args", "youtube:player_client=android",
+		"--extractor-args", "youtube:player_client=android,web",
+		"--no-check-certificates",
 		url,
 	}
 
@@ -391,7 +393,8 @@ func downloadYouTubeAudio(url, tempDir string) (string, error) {
 		"--audio-format", "mp3",
 		"-o", outputPath,
 		"--no-playlist",
-		"--extractor-args", "youtube:player_client=android",
+		"--extractor-args", "youtube:player_client=android,web",
+		"--no-check-certificates",
 		url,
 	}
 
