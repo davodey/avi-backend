@@ -21,9 +21,8 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	Port            string
-	OpenAIAPIKey    string
-	YTDLPCookiesFile string
+	Port         string
+	OpenAIAPIKey string
 }
 
 // TranscribeRequest represents the incoming transcription request
@@ -91,9 +90,8 @@ func main() {
 
 	// Initialize configuration
 	config = Config{
-		Port:            getEnv("PORT", "5055"),
-		OpenAIAPIKey:    getEnv("OPENAI_API_KEY", ""),
-		YTDLPCookiesFile: getEnv("YTDLP_COOKIES_FILE", ""),
+		Port:         getEnv("PORT", "5055"),
+		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
 	}
 
 	if config.OpenAIAPIKey == "" {
@@ -215,18 +213,18 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 
 // getYouTubeCaptions tries to fetch YouTube's native captions/subtitles
 func getYouTubeCaptions(url, tempDir string) (TranscriptData, string, error) {
-	// Try to download subtitles using yt-dlp
-	baseArgs := []string{
+	// Try to download subtitles using yt-dlp without authentication
+	// Using android client which works better without cookies
+	args := []string{
 		"--write-auto-sub",  // Get auto-generated subtitles
 		"--sub-lang", "en",  // Prefer English
 		"--skip-download",   // Don't download video
 		"--sub-format", "vtt",
 		"-o", filepath.Join(tempDir, "video"),
-		"--extractor-args", "youtube:player_client=web",
+		"--extractor-args", "youtube:player_client=android",
 		url,
 	}
 
-	args := addYTDLPCommonArgs(baseArgs)
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -340,15 +338,15 @@ func parseVTTTime(timestamp string) float64 {
 
 // getVideoMetadata fetches video metadata using yt-dlp
 func getVideoMetadata(url string) (VideoMetadata, error) {
-	baseArgs := []string{
+	// Use android client without cookies for metadata
+	args := []string{
 		"--dump-json",
 		"--no-playlist",
 		"--skip-download",
-		"--extractor-args", "youtube:player_client=web",
+		"--extractor-args", "youtube:player_client=android",
 		url,
 	}
 
-	args := addYTDLPCommonArgs(baseArgs)
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -386,17 +384,17 @@ func getVideoMetadata(url string) (VideoMetadata, error) {
 func downloadYouTubeAudio(url, tempDir string) (string, error) {
 	outputPath := filepath.Join(tempDir, "audio.mp3")
 
-	baseArgs := []string{
+	// Use android client without cookies for audio download
+	args := []string{
 		"-f", "bestaudio/best",  // Select best audio format
 		"-x",                     // Extract audio
 		"--audio-format", "mp3",
 		"-o", outputPath,
 		"--no-playlist",
-		"--extractor-args", "youtube:player_client=web",
+		"--extractor-args", "youtube:player_client=android",
 		url,
 	}
 
-	args := addYTDLPCommonArgs(baseArgs)
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -527,22 +525,4 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
-}
-
-// addYTDLPCommonArgs adds common yt-dlp arguments including cookies if available
-func addYTDLPCommonArgs(baseArgs []string) []string {
-	args := make([]string, len(baseArgs))
-	copy(args, baseArgs)
-
-	// Add cookies if configured and file exists
-	if config.YTDLPCookiesFile != "" {
-		if _, err := os.Stat(config.YTDLPCookiesFile); err == nil {
-			args = append(args, "--cookies", config.YTDLPCookiesFile)
-			log.Printf("Using cookies file: %s", config.YTDLPCookiesFile)
-		} else {
-			log.Printf("Cookies file not found: %s (continuing without cookies)", config.YTDLPCookiesFile)
-		}
-	}
-
-	return args
 }
