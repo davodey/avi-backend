@@ -39,9 +39,6 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder /app/main .
 
-# Copy cookies file if it exists (for YouTube authentication)
-COPY cookies.txt ./cookies.txt
-
 # Expose port
 EXPOSE 5055
 
