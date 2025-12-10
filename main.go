@@ -352,7 +352,7 @@ func getVideoMetadata(url string) (VideoMetadata, error) {
 	cmd := exec.Command("yt-dlp", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return VideoMetadata{}, fmt.Errorf("failed to fetch metadata: %v", err)
+		return VideoMetadata{}, fmt.Errorf("failed to fetch metadata: %v, output: %s", err, string(output))
 	}
 
 	var videoInfo struct {
