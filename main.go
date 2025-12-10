@@ -213,15 +213,14 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 
 // getYouTubeCaptions tries to fetch YouTube's native captions/subtitles
 func getYouTubeCaptions(url, tempDir string) (TranscriptData, string, error) {
-	// Try to download subtitles using yt-dlp without authentication
-	// Using android client which works better without cookies
+	// Using mweb client as recommended by yt-dlp documentation
 	args := []string{
 		"--write-auto-sub",  // Get auto-generated subtitles
 		"--sub-lang", "en",  // Prefer English
 		"--skip-download",   // Don't download video
 		"--sub-format", "vtt",
 		"-o", filepath.Join(tempDir, "video"),
-		"--extractor-args", "youtube:player_client=android",
+		"--extractor-args", "youtube:player_client=mweb",
 		url,
 	}
 
@@ -338,12 +337,12 @@ func parseVTTTime(timestamp string) float64 {
 
 // getVideoMetadata fetches video metadata using yt-dlp
 func getVideoMetadata(url string) (VideoMetadata, error) {
-	// Use android client without cookies for metadata
+	// Using mweb client as recommended by yt-dlp documentation
 	args := []string{
 		"--dump-json",
 		"--no-playlist",
 		"--skip-download",
-		"--extractor-args", "youtube:player_client=android",
+		"--extractor-args", "youtube:player_client=mweb",
 		url,
 	}
 
@@ -384,14 +383,14 @@ func getVideoMetadata(url string) (VideoMetadata, error) {
 func downloadYouTubeAudio(url, tempDir string) (string, error) {
 	outputPath := filepath.Join(tempDir, "audio.mp3")
 
-	// Use android client without cookies for audio download
+	// Using mweb client as recommended by yt-dlp documentation
 	args := []string{
 		"-f", "bestaudio/best",  // Select best audio format
 		"-x",                     // Extract audio
 		"--audio-format", "mp3",
 		"-o", outputPath,
 		"--no-playlist",
-		"--extractor-args", "youtube:player_client=android",
+		"--extractor-args", "youtube:player_client=mweb",
 		url,
 	}
 
