@@ -31,8 +31,8 @@ RUN apk add --no-cache \
     py3-pip \
     ffmpeg
 
-# Install yt-dlp with latest version
-RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp
+# Install yt-dlp with latest version and PO token provider plugin
+RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp bgutil-ytdlp-pot-provider
 
 WORKDIR /app
 
