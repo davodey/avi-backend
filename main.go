@@ -213,37 +213,58 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 
 // getYouTubeCaptions tries to fetch YouTube's native captions/subtitles
 func getYouTubeCaptions(url, tempDir string) (TranscriptData, string, error) {
-	// Using mweb client as recommended by yt-dlp documentation
-	args := []string{
-		"--write-auto-sub",  // Get auto-generated subtitles
-		"--sub-lang", "en",  // Prefer English
-		"--skip-download",   // Don't download video
-		"--sub-format", "vtt",
-		"-o", filepath.Join(tempDir, "video"),
-		"--extractor-args", "youtube:player_client=mweb",
-		url,
-	}
-
-	cmd := exec.Command("yt-dlp", args...)
+	// Use Python youtube-transcript-api to get transcripts directly
+	// This bypasses all bot detection issues
+	cmd := exec.Command("python3", "get_transcript.py", url)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return TranscriptData{}, "", fmt.Errorf("failed to download captions: %v, output: %s", err, string(output))
+		return TranscriptData{}, "", fmt.Errorf("failed to get transcript: %v, output: %s", err, string(output))
 	}
 
-	// Find the generated subtitle file
-	files, _ := filepath.Glob(filepath.Join(tempDir, "video*.vtt"))
-	if len(files) == 0 {
-		return TranscriptData{}, "", fmt.Errorf("no subtitle files found")
+	// Parse JSON response
+	var result struct {
+		Success    bool   `json:"success"`
+		Error      string `json:"error"`
+		VideoID    string `json:"video_id"`
+		Transcript []struct {
+			Text     string  `json:"text"`
+			Start    float64 `json:"start"`
+			Duration float64 `json:"duration"`
+		} `json:"transcript"`
 	}
 
-	// Parse VTT file
-	transcript, err := parseVTTFile(files[0])
-	if err != nil {
-		return TranscriptData{}, "", fmt.Errorf("failed to parse VTT: %v", err)
+	if err := json.Unmarshal(output, &result); err != nil {
+		return TranscriptData{}, "", fmt.Errorf("failed to parse transcript JSON: %v", err)
 	}
 
-	log.Printf("Successfully extracted YouTube captions")
-	return transcript, "youtube_captions", nil
+	if !result.Success {
+		return TranscriptData{}, "", fmt.Errorf("transcript fetch failed: %s", result.Error)
+	}
+
+	// Convert to our TranscriptData format
+	var segments []TranscriptSegment
+	var fullText strings.Builder
+	totalDuration := 0.0
+
+	for i, entry := range result.Transcript {
+		segments = append(segments, TranscriptSegment{
+			ID:    i + 1,
+			Start: entry.Start,
+			End:   entry.Start + entry.Duration,
+			Text:  entry.Text,
+		})
+		fullText.WriteString(entry.Text)
+		fullText.WriteString(" ")
+		totalDuration = entry.Start + entry.Duration
+	}
+
+	log.Printf("Successfully extracted YouTube transcript with %d segments", len(segments))
+	return TranscriptData{
+		Text:     strings.TrimSpace(fullText.String()),
+		Segments: segments,
+		Language: "en",
+		Duration: totalDuration,
+	}, "youtube_transcript_api", nil
 }
 
 // parseVTTFile parses a WebVTT subtitle file

@@ -32,12 +32,16 @@ RUN apk add --no-cache \
     ffmpeg
 
 # Install yt-dlp with latest version and PO token provider plugin
-RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp bgutil-ytdlp-pot-provider
+RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp bgutil-ytdlp-pot-provider youtube-transcript-api
 
 WORKDIR /app
 
 # Copy the binary from builder
 COPY --from=builder /app/main .
+
+# Copy Python transcript helper
+COPY get_transcript.py .
+RUN chmod +x get_transcript.py
 
 # Expose port
 EXPOSE 5055
