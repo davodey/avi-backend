@@ -26,29 +26,13 @@ const puppeteerOptions = {
   ]
 };
 
-// Health check endpoint
-app.get('/api/health', async (req, res) => {
-  try {
-    // Test if Puppeteer can launch
-    const browser = await puppeteer.launch(puppeteerOptions);
-    await browser.close();
-
-    res.json({
-      ok: true,
-      service: 'avi-backend-scraper',
-      time: new Date().toISOString(),
-      puppeteer: 'working'
-    });
-  } catch (error) {
-    console.error('Health check failed:', error);
-    res.status(500).json({
-      ok: false,
-      service: 'avi-backend-scraper',
-      time: new Date().toISOString(),
-      puppeteer: 'error',
-      error: error.message
-    });
-  }
+// Health check endpoint - must be fast for App Platform
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    service: 'avi-backend-scraper',
+    time: new Date().toISOString()
+  });
 });
 
 // Scrape endpoint
