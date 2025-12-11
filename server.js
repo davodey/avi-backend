@@ -10,13 +10,45 @@ const PORT = process.env.PORT || 5055;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// Puppeteer launch options for App Platform
+const puppeteerOptions = {
+  headless: 'new',
+  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--no-first-run',
+    '--no-zygote',
+    '--single-process', // Important for low-memory environments
+    '--disable-gpu'
+  ]
+};
+
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    ok: true,
-    service: 'avi-backend-scraper',
-    time: new Date().toISOString()
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    // Test if Puppeteer can launch
+    const browser = await puppeteer.launch(puppeteerOptions);
+    await browser.close();
+
+    res.json({
+      ok: true,
+      service: 'avi-backend-scraper',
+      time: new Date().toISOString(),
+      puppeteer: 'working'
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(500).json({
+      ok: false,
+      service: 'avi-backend-scraper',
+      time: new Date().toISOString(),
+      puppeteer: 'error',
+      error: error.message
+    });
+  }
 });
 
 // Scrape endpoint
@@ -39,18 +71,9 @@ app.post('/api/scrape', async (req, res) => {
     console.log(`Scraping ${urls.length} URLs...`);
 
     // Launch browser once for all URLs (more efficient)
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    });
+    console.log('Launching Puppeteer...');
+    const browser = await puppeteer.launch(puppeteerOptions);
+    console.log('Browser launched successfully');
 
     const results = [];
 
@@ -102,7 +125,19 @@ app.post('/api/scrape', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
+  console.log(`Puppeteer executable: ${puppeteerOptions.executablePath}`);
+
+  // Test Puppeteer on startup
+  try {
+    console.log('Testing Puppeteer launch...');
+    const browser = await puppeteer.launch(puppeteerOptions);
+    console.log('✓ Puppeteer can launch successfully');
+    await browser.close();
+  } catch (error) {
+    console.error('✗ Puppeteer launch failed:', error.message);
+    console.error('Full error:', error);
+  }
 });
