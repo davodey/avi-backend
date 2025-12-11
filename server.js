@@ -31,6 +31,30 @@ const puppeteerOptions = {
 // Shared browser instance (reuse instead of launching multiple)
 let browserInstance = null;
 let isProcessing = false;
+let processingTimeout = null;
+
+// Auto-reset processing flag after 5 minutes to prevent stuck state
+function setProcessing(value) {
+  isProcessing = value;
+
+  if (value === true) {
+    // Clear any existing timeout
+    if (processingTimeout) {
+      clearTimeout(processingTimeout);
+    }
+    // Auto-reset after 5 minutes in case of crash
+    processingTimeout = setTimeout(() => {
+      console.log('⚠️  Auto-resetting processing flag (timeout)');
+      isProcessing = false;
+    }, 300000); // 5 minutes
+  } else {
+    // Clear timeout when processing completes normally
+    if (processingTimeout) {
+      clearTimeout(processingTimeout);
+      processingTimeout = null;
+    }
+  }
+}
 
 // Get or create browser instance
 async function getBrowser() {
@@ -62,7 +86,7 @@ app.post('/api/scrape', async (req, res) => {
   }
 
   try {
-    isProcessing = true;
+    setProcessing(true);
 
     // Handle both formats: direct array or wrapped in {data: [...]}
     let urls = req.body;
@@ -72,7 +96,7 @@ app.post('/api/scrape', async (req, res) => {
 
     // Validate request
     if (!Array.isArray(urls) || urls.length === 0) {
-      isProcessing = false;
+      setProcessing(false);
       return res.status(400).json({
         ok: false,
         error: 'Request body must be an array of URL objects'
@@ -139,7 +163,7 @@ app.post('/api/scrape', async (req, res) => {
       error: 'Failed to scrape URLs: ' + error.message
     });
   } finally {
-    isProcessing = false;
+    setProcessing(false);
   }
 });
 
