@@ -30,6 +30,8 @@ const puppeteerOptions = {
 
 // Shared browser instance (reuse instead of launching multiple)
 let browserInstance = null;
+let activeRequests = 0;
+const MAX_CONCURRENT_REQUESTS = 2;
 
 // Get or create browser instance
 async function getBrowser() {
@@ -52,6 +54,18 @@ app.get('/api/health', (req, res) => {
 
 // Scrape endpoint
 app.post('/api/scrape', async (req, res) => {
+  // Limit concurrent requests to prevent server overload
+  if (activeRequests >= MAX_CONCURRENT_REQUESTS) {
+    console.log(`⚠️  Rejecting request - ${activeRequests} requests already active`);
+    return res.status(429).json({
+      ok: false,
+      error: `Server is busy processing ${activeRequests} requests. Please wait and try again. (n8n is sending individual requests instead of batching - check your HTTP Request node configuration)`
+    });
+  }
+
+  activeRequests++;
+  console.log(`Active requests: ${activeRequests}`);
+
   try {
     // Handle both formats: direct array or wrapped in {data: [...]}
     let urls = req.body;
@@ -126,6 +140,9 @@ app.post('/api/scrape', async (req, res) => {
       ok: false,
       error: 'Failed to scrape URLs: ' + error.message
     });
+  } finally {
+    activeRequests--;
+    console.log(`Request completed. Active requests: ${activeRequests}`);
   }
 });
 
