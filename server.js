@@ -14,6 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 const puppeteerOptions = {
   headless: 'new',
   executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+  protocolTimeout: 60000, // Increase timeout from default 180s to 60s per operation
   args: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -21,8 +22,9 @@ const puppeteerOptions = {
     '--disable-accelerated-2d-canvas',
     '--no-first-run',
     '--no-zygote',
-    '--single-process', // Important for low-memory environments
-    '--disable-gpu'
+    '--disable-gpu',
+    '--disable-extensions',
+    '--disable-background-networking'
   ]
 };
 
@@ -86,10 +88,11 @@ app.post('/api/scrape', async (req, res) => {
 
     // Scrape each URL
     for (const item of urls) {
+      let page = null;
       try {
         console.log(`Scraping: ${item.url}`);
 
-        const page = await browser.newPage();
+        page = await browser.newPage();
 
         // Set viewport and user agent
         await page.setViewport({ width: 1920, height: 1080 });
@@ -110,11 +113,19 @@ app.post('/api/scrape', async (req, res) => {
 
         results.push({ data: html });
 
-        await page.close();
         console.log(`✓ Scraped: ${item.url}`);
       } catch (error) {
         console.error(`✗ Error scraping ${item.url}:`, error.message);
         results.push({ data: '' });
+      } finally {
+        // Always close the page to prevent memory leaks
+        if (page) {
+          try {
+            await page.close();
+          } catch (e) {
+            console.error('Error closing page:', e.message);
+          }
+        }
       }
     }
 
