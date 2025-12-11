@@ -96,13 +96,14 @@ app.post('/api/scrape', async (req, res) => {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
         // Navigate to URL with timeout
+        // Use 'domcontentloaded' instead of 'networkidle2' for speed
         await page.goto(item.url, {
-          waitUntil: 'networkidle2',
-          timeout: 30000
+          waitUntil: 'domcontentloaded',
+          timeout: 10000
         });
 
-        // Wait a bit for React to fully hydrate
-        await page.waitForTimeout(2000);
+        // Wait briefly for React to hydrate
+        await page.waitForTimeout(1000);
 
         // Get the fully rendered HTML
         const html = await page.content();
