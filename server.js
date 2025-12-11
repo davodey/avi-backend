@@ -26,6 +26,20 @@ const puppeteerOptions = {
   ]
 };
 
+// Shared browser instance (reuse instead of launching multiple)
+let browserInstance = null;
+let isProcessing = false;
+
+// Get or create browser instance
+async function getBrowser() {
+  if (!browserInstance) {
+    console.log('Creating new browser instance...');
+    browserInstance = await puppeteer.launch(puppeteerOptions);
+    console.log('Browser instance created');
+  }
+  return browserInstance;
+}
+
 // Health check endpoint - must be fast for App Platform
 app.get('/api/health', (req, res) => {
   res.json({
@@ -37,7 +51,17 @@ app.get('/api/health', (req, res) => {
 
 // Scrape endpoint
 app.post('/api/scrape', async (req, res) => {
+  // Prevent concurrent requests from overwhelming the server
+  if (isProcessing) {
+    return res.status(429).json({
+      ok: false,
+      error: 'Server is currently processing another request. Please try again in a moment.'
+    });
+  }
+
   try {
+    isProcessing = true;
+
     // Handle both formats: direct array or wrapped in {data: [...]}
     let urls = req.body;
     if (!Array.isArray(urls) && urls.data && Array.isArray(urls.data)) {
@@ -46,6 +70,7 @@ app.post('/api/scrape', async (req, res) => {
 
     // Validate request
     if (!Array.isArray(urls) || urls.length === 0) {
+      isProcessing = false;
       return res.status(400).json({
         ok: false,
         error: 'Request body must be an array of URL objects'
@@ -54,10 +79,8 @@ app.post('/api/scrape', async (req, res) => {
 
     console.log(`Scraping ${urls.length} URLs...`);
 
-    // Launch browser once for all URLs (more efficient)
-    console.log('Launching Puppeteer...');
-    const browser = await puppeteer.launch(puppeteerOptions);
-    console.log('Browser launched successfully');
+    // Get or create shared browser instance
+    const browser = await getBrowser();
 
     const results = [];
 
@@ -94,8 +117,6 @@ app.post('/api/scrape', async (req, res) => {
       }
     }
 
-    await browser.close();
-
     console.log(`Completed scraping ${results.length} URLs`);
     res.json(results);
 
@@ -105,6 +126,8 @@ app.post('/api/scrape', async (req, res) => {
       ok: false,
       error: 'Failed to scrape URLs: ' + error.message
     });
+  } finally {
+    isProcessing = false;
   }
 });
 
@@ -114,14 +137,13 @@ app.listen(PORT, async () => {
   console.log(`Health check: http://localhost:${PORT}/api/health`);
   console.log(`Puppeteer executable: ${puppeteerOptions.executablePath}`);
 
-  // Test Puppeteer on startup
+  // Initialize browser instance on startup
   try {
-    console.log('Testing Puppeteer launch...');
-    const browser = await puppeteer.launch(puppeteerOptions);
-    console.log('✓ Puppeteer can launch successfully');
-    await browser.close();
+    console.log('Initializing browser instance...');
+    await getBrowser();
+    console.log('✓ Browser initialized and ready');
   } catch (error) {
-    console.error('✗ Puppeteer launch failed:', error.message);
+    console.error('✗ Browser initialization failed:', error.message);
     console.error('Full error:', error);
   }
 });
