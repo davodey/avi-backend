@@ -9,6 +9,7 @@ tsconfig.json
 
 # Go binaries
 avi-backend
+server
 *.exe
 *.exe~
 *.dll
