@@ -1,56 +1,35 @@
-# Build stage
-FROM golang:1.24-alpine AS builder
+# Use official Node.js image
+FROM node:18-alpine
 
-# Install build dependencies
-RUN apk add --no-cache git
-
-WORKDIR /app
-
-# Copy go mod files
-COPY go.mod go.sum ./
-
-# Download dependencies
-RUN go mod download
-
-# Copy source code
-COPY . .
-
-# Ensure go.mod is up to date
-RUN go mod tidy
-
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server .
-
-# Runtime stage
-FROM alpine:latest
-
-# Install runtime dependencies including Chromium for web scraping
+# Install Chromium and dependencies required by Puppeteer
 RUN apk add --no-cache \
-    ca-certificates \
-    python3 \
-    py3-pip \
-    ffmpeg \
     chromium \
     nss \
     freetype \
     harfbuzz \
+    ca-certificates \
     ttf-freefont \
-    udev
+    nodejs \
+    yarn
 
-# Install yt-dlp with latest version and PO token provider plugin
-RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp bgutil-ytdlp-pot-provider
+# Tell Puppeteer to skip installing Chrome (we'll use system Chromium)
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# Set Chrome path for chromedp
-ENV CHROME_BIN=/usr/bin/chromium-browser \
-    CHROME_PATH=/usr/lib/chromium/
-
+# Create app directory
 WORKDIR /app
 
-# Copy the binary from builder
-COPY --from=builder /app/server .
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install --production
+
+# Copy app source
+COPY . .
 
 # Expose port
 EXPOSE 5055
 
-# Run the application
-CMD ["./server"]
+# Start the application
+CMD ["npm", "start"]

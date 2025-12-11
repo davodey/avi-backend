@@ -1,9 +1,19 @@
-# Node.js artifacts (from old implementation)
+# Node.js
 node_modules/
 npm-debug.log
 yarn-error.log
-dist/
-src/
+.npm
+.yarn
+
+# Go artifacts (legacy)
+*.exe
+*.dll
+*.so
+*.dylib
+avi-backend
+server
+go.sum
+main.go
 
 # Git
 .git/
@@ -19,10 +29,9 @@ src/
 README.md
 *.md
 
-# TypeScript config (from old implementation)
-tsconfig.json
-package.json
-package-lock.json
+# Environment
+.env
+.env.local
 
 # Scripts
 scripts/
