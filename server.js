@@ -22,7 +22,11 @@ app.get('/api/health', (req, res) => {
 // Scrape endpoint
 app.post('/api/scrape', async (req, res) => {
   try {
-    const urls = req.body;
+    // Handle both formats: direct array or wrapped in {data: [...]}
+    let urls = req.body;
+    if (!Array.isArray(urls) && urls.data && Array.isArray(urls.data)) {
+      urls = urls.data;
+    }
 
     // Validate request
     if (!Array.isArray(urls) || urls.length === 0) {
