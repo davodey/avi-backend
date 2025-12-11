@@ -30,31 +30,6 @@ const puppeteerOptions = {
 
 // Shared browser instance (reuse instead of launching multiple)
 let browserInstance = null;
-let isProcessing = false;
-let processingTimeout = null;
-
-// Auto-reset processing flag after 5 minutes to prevent stuck state
-function setProcessing(value) {
-  isProcessing = value;
-
-  if (value === true) {
-    // Clear any existing timeout
-    if (processingTimeout) {
-      clearTimeout(processingTimeout);
-    }
-    // Auto-reset after 5 minutes in case of crash
-    processingTimeout = setTimeout(() => {
-      console.log('⚠️  Auto-resetting processing flag (timeout)');
-      isProcessing = false;
-    }, 300000); // 5 minutes
-  } else {
-    // Clear timeout when processing completes normally
-    if (processingTimeout) {
-      clearTimeout(processingTimeout);
-      processingTimeout = null;
-    }
-  }
-}
 
 // Get or create browser instance
 async function getBrowser() {
@@ -77,17 +52,7 @@ app.get('/api/health', (req, res) => {
 
 // Scrape endpoint
 app.post('/api/scrape', async (req, res) => {
-  // Prevent concurrent requests from overwhelming the server
-  if (isProcessing) {
-    return res.status(429).json({
-      ok: false,
-      error: 'Server is currently processing another request. Please try again in a moment.'
-    });
-  }
-
   try {
-    setProcessing(true);
-
     // Handle both formats: direct array or wrapped in {data: [...]}
     let urls = req.body;
     if (!Array.isArray(urls) && urls.data && Array.isArray(urls.data)) {
@@ -96,7 +61,6 @@ app.post('/api/scrape', async (req, res) => {
 
     // Validate request
     if (!Array.isArray(urls) || urls.length === 0) {
-      setProcessing(false);
       return res.status(400).json({
         ok: false,
         error: 'Request body must be an array of URL objects'
@@ -162,8 +126,6 @@ app.post('/api/scrape', async (req, res) => {
       ok: false,
       error: 'Failed to scrape URLs: ' + error.message
     });
-  } finally {
-    setProcessing(false);
   }
 });
 
