@@ -80,6 +80,23 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+// ScrapeURLItem represents a single URL to scrape
+type ScrapeURLItem struct {
+	URL    string `json:"url"`
+	Domain string `json:"domain"`
+}
+
+// ScrapeRequest represents the incoming scrape request
+type ScrapeRequest []ScrapeURLItem
+
+// ScrapeResultItem represents the scraped data for a single URL
+type ScrapeResultItem struct {
+	Data string `json:"data"`
+}
+
+// ScrapeResponse represents the scrape response
+type ScrapeResponse []ScrapeResultItem
+
 var config Config
 
 func main() {
@@ -104,6 +121,7 @@ func main() {
 	// Register routes
 	mux.HandleFunc("/api/health", healthHandler)
 	mux.HandleFunc("/api/transcribe", transcribeHandler)
+	mux.HandleFunc("/api/scrape", scrapeHandler)
 
 	// Setup CORS
 	handler := cors.New(cors.Options{
@@ -209,6 +227,77 @@ func transcribeHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// scrapeHandler handles the URL scraping endpoint
+func scrapeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body
+	var req ScrapeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate that we have URLs to scrape
+	if len(req) == 0 {
+		sendError(w, "No URLs provided", http.StatusBadRequest)
+		return
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Scrape each URL
+	results := make(ScrapeResponse, len(req))
+	for i, item := range req {
+		htmlContent, err := scrapeURL(client, item.URL)
+		if err != nil {
+			log.Printf("Error scraping URL %s: %v", item.URL, err)
+			// Store empty data on error
+			results[i] = ScrapeResultItem{Data: ""}
+		} else {
+			results[i] = ScrapeResultItem{Data: htmlContent}
+		}
+	}
+
+	// Send response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// scrapeURL fetches the HTML content from a URL
+func scrapeURL(client *http.Client, url string) (string, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Set a realistic User-Agent to avoid being blocked
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch URL: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("received status code %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	return string(body), nil
 }
 
 // getYouTubeCaptions tries to fetch YouTube's native captions/subtitles
