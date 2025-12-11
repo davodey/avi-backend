@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chromedp/chromedp"
 	"github.com/joho/godotenv"
 	"github.com/rs/cors"
 )
@@ -272,32 +274,45 @@ func scrapeHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
-// scrapeURL fetches the HTML content from a URL
+// scrapeURL fetches the HTML content from a URL using headless Chrome
+// This properly renders React/SPA applications by executing JavaScript
 func scrapeURL(client *http.Client, url string) (string, error) {
-	req, err := http.NewRequest("GET", url, nil)
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Create chromedp context with headless browser
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+	)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
+	defer allocCancel()
+
+	ctx, cancel = chromedp.NewContext(allocCtx)
+	defer cancel()
+
+	var htmlContent string
+
+	// Navigate to URL and wait for page to be fully loaded
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		// Wait for the root div to be populated (React apps render here)
+		chromedp.WaitVisible(`body`, chromedp.ByQuery),
+		// Give React time to fully render
+		chromedp.Sleep(2*time.Second),
+		// Get the full HTML after JavaScript execution
+		chromedp.OuterHTML(`html`, &htmlContent, chromedp.ByQuery),
+	)
+
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
+		return "", fmt.Errorf("failed to scrape URL with headless browser: %v", err)
 	}
 
-	// Set a realistic User-Agent to avoid being blocked
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch URL: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("received status code %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	return string(body), nil
+	return htmlContent, nil
 }
 
 // getYouTubeCaptions tries to fetch YouTube's native captions/subtitles
