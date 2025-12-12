@@ -14,7 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 const puppeteerOptions = {
   headless: 'new',
   executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
-  protocolTimeout: 60000, // Increase timeout from default 180s to 60s per operation
+  protocolTimeout: 120000, // 2 minutes for protocol operations
   args: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -24,7 +24,8 @@ const puppeteerOptions = {
     '--no-zygote',
     '--disable-gpu',
     '--disable-extensions',
-    '--disable-background-networking'
+    '--disable-background-networking',
+    '--disable-blink-features=AutomationControlled' // Avoid bot detection
   ]
 };
 
@@ -99,15 +100,24 @@ app.post('/api/scrape', async (req, res) => {
 
         page = await browser.newPage();
 
-        // Set viewport and user agent
+        // Set a longer default timeout for the page
+        page.setDefaultTimeout(60000); // 60 seconds
+
+        // Set viewport and user agent to look like a real browser
         await page.setViewport({ width: 1920, height: 1080 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // Navigate to URL with timeout
-        // Use 'domcontentloaded' instead of 'networkidle2' for speed
+        // Remove webdriver property to avoid bot detection
+        await page.evaluateOnNewDocument(() => {
+          Object.defineProperty(navigator, 'webdriver', {
+            get: () => false,
+          });
+        });
+
+        // Navigate to URL with longer timeout
         await page.goto(item.url, {
           waitUntil: 'domcontentloaded',
-          timeout: 10000
+          timeout: 60000 // 60 seconds
         });
 
         // Wait briefly for React to hydrate
@@ -134,7 +144,8 @@ app.post('/api/scrape', async (req, res) => {
     };
 
     // Configurable concurrency (how many URLs to scrape in parallel)
-    const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || '10');
+    // Lower default to avoid rate limiting and bot detection
+    const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || '5');
 
     // Recommended max per request to avoid gateway timeouts (can be overridden)
     const MAX_URLS_PER_REQUEST = parseInt(process.env.MAX_URLS_PER_REQUEST || '50');
