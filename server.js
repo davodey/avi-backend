@@ -91,13 +91,11 @@ app.post('/api/scrape', async (req, res) => {
     // Get or create shared browser instance
     const browser = await getBrowser();
 
-    const results = [];
-
-    // Scrape each URL
-    for (const item of urls) {
+    // Scrape function for a single URL
+    const scrapeUrl = async (item, index) => {
       let page = null;
       try {
-        console.log(`Scraping: ${item.url}`);
+        console.log(`Scraping [${index + 1}/${urls.length}]: ${item.url}`);
 
         page = await browser.newPage();
 
@@ -118,12 +116,11 @@ app.post('/api/scrape', async (req, res) => {
         // Get the fully rendered HTML
         const html = await page.content();
 
-        results.push({ data: html });
-
-        console.log(`✓ Scraped: ${item.url}`);
+        console.log(`✓ Scraped [${index + 1}/${urls.length}]: ${item.url}`);
+        return { data: html };
       } catch (error) {
         console.error(`✗ Error scraping ${item.url}:`, error.message);
-        results.push({ data: '' });
+        return { data: '' };
       } finally {
         // Always close the page to prevent memory leaks
         if (page) {
@@ -134,6 +131,21 @@ app.post('/api/scrape', async (req, res) => {
           }
         }
       }
+    };
+
+    // Process all URLs in parallel with concurrency limit
+    const CONCURRENCY = 5; // Process 5 URLs at a time
+    const results = new Array(urls.length);
+
+    for (let i = 0; i < urls.length; i += CONCURRENCY) {
+      const batch = urls.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map((url, batchIndex) => scrapeUrl(url, i + batchIndex))
+      );
+      batchResults.forEach((result, batchIndex) => {
+        results[i + batchIndex] = result;
+      });
+      console.log(`Completed batch ${Math.floor(i / CONCURRENCY) + 1}/${Math.ceil(urls.length / CONCURRENCY)}`);
     }
 
     console.log(`Completed scraping ${results.length} URLs`);
