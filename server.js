@@ -183,10 +183,10 @@ app.post('/api/scrape', async (req, res) => {
         const sanitizedHtml = sanitizeHtml(html);
 
         console.log(`✓ Scraped [${index + 1}/${urls.length}]: ${item.url}`);
-        return { data: sanitizedHtml };
+        return { url: item.url, data: sanitizedHtml };
       } catch (error) {
         console.error(`✗ Error scraping ${item.url}:`, error.message);
-        return { data: '' };
+        return { url: item.url, data: '' };
       } finally {
         // Always close the page to prevent memory leaks
         if (page) {
