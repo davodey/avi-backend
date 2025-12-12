@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
+const cheerio = require('cheerio');
 require('dotenv').config();
 
 const app = express();
@@ -40,6 +41,58 @@ async function getBrowser() {
     console.log('Browser instance created');
   }
   return browserInstance;
+}
+
+// Sanitize HTML for SEO analysis - remove bloat, keep semantic content
+function sanitizeHtml(html) {
+  const $ = cheerio.load(html);
+
+  // Remove entire style blocks
+  $('style').remove();
+
+  // Remove all scripts
+  $('script').remove();
+
+  // Remove SVG elements (they bloat the payload)
+  $('svg').remove();
+
+  // Remove all inline styles
+  $('[style]').removeAttr('style');
+
+  // Remove all class attributes
+  $('[class]').removeAttr('class');
+
+  // Remove data-* attributes
+  $('*').each(function() {
+    const attrs = $(this).attr();
+    if (attrs) {
+      Object.keys(attrs).forEach(attr => {
+        if (attr.startsWith('data-')) {
+          $(this).removeAttr(attr);
+        }
+      });
+    }
+  });
+
+  // Remove aria-* attributes (not needed for SEO)
+  $('*').each(function() {
+    const attrs = $(this).attr();
+    if (attrs) {
+      Object.keys(attrs).forEach(attr => {
+        if (attr.startsWith('aria-')) {
+          $(this).removeAttr(attr);
+        }
+      });
+    }
+  });
+
+  // Remove id attributes (usually not needed for SEO)
+  $('[id]').removeAttr('id');
+
+  // Remove role attributes
+  $('[role]').removeAttr('role');
+
+  return $.html();
 }
 
 // Health check endpoint - must be fast for App Platform
@@ -126,8 +179,11 @@ app.post('/api/scrape', async (req, res) => {
         // Get the fully rendered HTML
         const html = await page.content();
 
+        // Sanitize HTML to remove bloat and keep only SEO-relevant content
+        const sanitizedHtml = sanitizeHtml(html);
+
         console.log(`✓ Scraped [${index + 1}/${urls.length}]: ${item.url}`);
-        return { data: html };
+        return { data: sanitizedHtml };
       } catch (error) {
         console.error(`✗ Error scraping ${item.url}:`, error.message);
         return { data: '' };
