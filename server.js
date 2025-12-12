@@ -143,33 +143,15 @@ app.post('/api/scrape', async (req, res) => {
       }
     };
 
-    // Configurable concurrency (how many URLs to scrape in parallel)
-    // Lower default to avoid rate limiting and bot detection
-    const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || '5');
+    // Process URLs one at a time (sequential)
+    const results = [];
 
-    // Recommended max per request to avoid gateway timeouts (can be overridden)
-    const MAX_URLS_PER_REQUEST = parseInt(process.env.MAX_URLS_PER_REQUEST || '50');
-
-    if (urls.length > MAX_URLS_PER_REQUEST) {
-      console.warn(`⚠️  Warning: ${urls.length} URLs exceeds recommended max of ${MAX_URLS_PER_REQUEST}. Consider splitting into smaller batches.`);
-      // Still process, but warn - user may want to split in n8n for better reliability
+    for (let i = 0; i < urls.length; i++) {
+      const result = await scrapeUrl(urls[i], i);
+      results.push(result);
     }
 
-    // Process all URLs in parallel with concurrency limit
-    const results = new Array(urls.length);
-
-    for (let i = 0; i < urls.length; i += CONCURRENCY) {
-      const batch = urls.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(
-        batch.map((url, batchIndex) => scrapeUrl(url, i + batchIndex))
-      );
-      batchResults.forEach((result, batchIndex) => {
-        results[i + batchIndex] = result;
-      });
-      console.log(`Completed batch ${Math.floor(i / CONCURRENCY) + 1}/${Math.ceil(urls.length / CONCURRENCY)} (${i + batch.length}/${urls.length} URLs)`);
-    }
-
-    console.log(`Completed scraping ${results.length} URLs`);
+    console.log(`✓ Completed scraping all ${results.length} URLs`);
     res.json(results);
 
   } catch (error) {
