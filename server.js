@@ -133,8 +133,18 @@ app.post('/api/scrape', async (req, res) => {
       }
     };
 
+    // Configurable concurrency (how many URLs to scrape in parallel)
+    const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || '10');
+
+    // Recommended max per request to avoid gateway timeouts (can be overridden)
+    const MAX_URLS_PER_REQUEST = parseInt(process.env.MAX_URLS_PER_REQUEST || '50');
+
+    if (urls.length > MAX_URLS_PER_REQUEST) {
+      console.warn(`⚠️  Warning: ${urls.length} URLs exceeds recommended max of ${MAX_URLS_PER_REQUEST}. Consider splitting into smaller batches.`);
+      // Still process, but warn - user may want to split in n8n for better reliability
+    }
+
     // Process all URLs in parallel with concurrency limit
-    const CONCURRENCY = 5; // Process 5 URLs at a time
     const results = new Array(urls.length);
 
     for (let i = 0; i < urls.length; i += CONCURRENCY) {
@@ -145,7 +155,7 @@ app.post('/api/scrape', async (req, res) => {
       batchResults.forEach((result, batchIndex) => {
         results[i + batchIndex] = result;
       });
-      console.log(`Completed batch ${Math.floor(i / CONCURRENCY) + 1}/${Math.ceil(urls.length / CONCURRENCY)}`);
+      console.log(`Completed batch ${Math.floor(i / CONCURRENCY) + 1}/${Math.ceil(urls.length / CONCURRENCY)} (${i + batch.length}/${urls.length} URLs)`);
     }
 
     console.log(`Completed scraping ${results.length} URLs`);
