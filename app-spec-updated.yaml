@@ -76,6 +76,12 @@ services:
   source_dir: /
 # n8n service - unchanged
 - envs:
+  - key: N8N_ENCRYPTION_KEY
+    scope: RUN_TIME
+    type: SECRET
+  - key: N8N_TRUST_PROXY
+    scope: RUN_TIME
+    value: "true"
   - key: N8N_PATH
     scope: RUN_AND_BUILD_TIME
     value: /n8n/
