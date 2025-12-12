@@ -53,14 +53,33 @@ app.get('/api/health', (req, res) => {
 // Scrape endpoint
 app.post('/api/scrape', async (req, res) => {
   try {
+    // Debug logging
+    console.log('Request Content-Type:', req.headers['content-type']);
+    console.log('Request body type:', typeof req.body);
+    console.log('Request body is array:', Array.isArray(req.body));
+
     // Handle both formats: direct array or wrapped in {data: [...]}
     let urls = req.body;
+
+    // Handle if body came as string (shouldn't happen with express.json but just in case)
+    if (typeof urls === 'string') {
+      try {
+        urls = JSON.parse(urls);
+      } catch (e) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid JSON in request body'
+        });
+      }
+    }
+
     if (!Array.isArray(urls) && urls.data && Array.isArray(urls.data)) {
       urls = urls.data;
     }
 
     // Validate request
     if (!Array.isArray(urls) || urls.length === 0) {
+      console.log('Validation failed - urls:', urls);
       return res.status(400).json({
         ok: false,
         error: 'Request body must be an array of URL objects'
