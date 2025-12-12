@@ -11,14 +11,20 @@
     "type": "git",
     "url": "https://github.com/davodey/avi-backend"
   },
-  "keywords": ["scraping", "puppeteer", "api", "headless-browser"],
+  "keywords": [
+    "scraping",
+    "puppeteer",
+    "api",
+    "headless-browser"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
+    "cheerio": "^1.1.2",
     "cors": "^2.8.5",
-    "puppeteer": "^21.6.1",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "puppeteer": "^21.6.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
