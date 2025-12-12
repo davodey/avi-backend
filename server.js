@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -140,7 +141,9 @@ app.post('/api/scrape', async (req, res) => {
       });
     }
 
-    console.log(`Scraping ${urls.length} URLs...`);
+    // Generate a unique batch ID for this request
+    const batchId = crypto.randomUUID();
+    console.log(`Scraping ${urls.length} URLs... [Batch ID: ${batchId}]`);
 
     // Get or create shared browser instance
     const browser = await getBrowser();
@@ -183,10 +186,10 @@ app.post('/api/scrape', async (req, res) => {
         const sanitizedHtml = sanitizeHtml(html);
 
         console.log(`✓ Scraped [${index + 1}/${urls.length}]: ${item.url}`);
-        return { url: item.url, data: sanitizedHtml };
+        return { batchId, url: item.url, data: sanitizedHtml };
       } catch (error) {
         console.error(`✗ Error scraping ${item.url}:`, error.message);
-        return { url: item.url, data: '' };
+        return { batchId, url: item.url, data: '' };
       } finally {
         // Always close the page to prevent memory leaks
         if (page) {
